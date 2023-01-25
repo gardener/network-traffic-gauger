@@ -1,0 +1,9 @@
+bin/
+.idea/
+*.sw[pq]
+.DS_Store
+tmp/
+local/
+.kube/
+.vscode/
+*.obs/
