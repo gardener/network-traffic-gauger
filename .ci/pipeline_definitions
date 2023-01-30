@@ -27,7 +27,7 @@ network-traffic-gauger:
                 user_interaction: 'end-user'
                 confidentiality_requirement: 'high'
                 integrity_requirement: 'high'
-                availability_requirement: 'high'
+                availability_requirement: 'low'
     steps:
       verify:
         image: golang:1.19.5
