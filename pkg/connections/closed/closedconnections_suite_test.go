@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package filestore
+package closed
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestFileStore(t *testing.T) {
+func TestClosedConnections(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "FileStore Suite")
+	RunSpecs(t, "ClosedConnections Suite")
 }

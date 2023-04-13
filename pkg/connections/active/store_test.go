@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package memorystore
+package active
 
 import (
 	"net"
@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("memory store test", func() {
+var _ = Describe("active connections store test", func() {
 	var (
 		ipV4Addresses      = []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("0.0.0.0"), net.ParseIP("255.255.255.255"), net.ParseIP("192.168.123.45"), net.ParseIP("10.11.12.13")}
 		shortIpV4Addresses = []net.IP{net.ParseIP("127.0.0.1").To4(), net.ParseIP("0.0.0.0").To4(), net.ParseIP("255.255.255.255").To4(), net.ParseIP("192.168.123.45").To4(), net.ParseIP("10.11.12.13").To4()}
@@ -26,11 +26,11 @@ var _ = Describe("memory store test", func() {
 		connID2       uint32 = 2
 		connID3       uint32 = 3
 
-		store MemoryStore
+		store Store
 	)
 
 	BeforeEach(func() {
-		store = NewMemoryStore(nil, 1024, false, false)
+		store = NewStore(nil, 1024, false, false)
 	})
 
 	DescribeTable("should store/update connection data",

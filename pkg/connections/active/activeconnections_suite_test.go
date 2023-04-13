@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package memorystore
+package active
 
 import (
 	"testing"
@@ -11,7 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestMemoryStore(t *testing.T) {
+func TestActiveConnections(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "MemoryStore Suite")
+	RunSpecs(t, "ActiveConnections Suite")
 }

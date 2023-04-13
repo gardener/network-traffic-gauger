@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"net/netip"
 
-	"github.com/gardener/network-traffic-gauger/pkg/filestore"
-	"github.com/gardener/network-traffic-gauger/pkg/memorystore"
+	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
+	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -23,8 +23,8 @@ type MetricsServer interface {
 }
 
 type metricsServer struct {
-	fileStore                         filestore.FileStore
-	memoryStore                       memorystore.MemoryStore
+	activeConnectionsStore            active.Store
+	closedConnectionsStore            closed.Store
 	port                              int
 	enableErrorLog                    bool
 	enableServiceMetrics              bool
@@ -52,10 +52,10 @@ type flow struct {
 	count           uint64
 }
 
-func NewMetricsServer(fileStore filestore.FileStore, memoryStore memorystore.MemoryStore, port int, enableErrorLog bool, enableServiceMetrics bool, enableByteMetrics bool, enablePacketMetrics bool, enableFlowCountMetrics bool, reportErrorsDuringCollection bool) MetricsServer {
+func NewMetricsServer(activeConnectionsStore active.Store, closedConnectionsStore closed.Store, port int, enableErrorLog bool, enableServiceMetrics bool, enableByteMetrics bool, enablePacketMetrics bool, enableFlowCountMetrics bool, reportErrorsDuringCollection bool) MetricsServer {
 	return &metricsServer{
-		fileStore:                         fileStore,
-		memoryStore:                       memoryStore,
+		activeConnectionsStore:            activeConnectionsStore,
+		closedConnectionsStore:            closedConnectionsStore,
 		port:                              port,
 		enableErrorLog:                    enableErrorLog,
 		enableServiceMetrics:              enableServiceMetrics,
@@ -121,19 +121,19 @@ func (ms *metricsServer) Describe(descriptionChannel chan<- *prometheus.Desc) {
 }
 
 func (ms *metricsServer) Collect(metricsChannel chan<- prometheus.Metric) {
-	ms.collect(metricsChannel, ms.memoryStore.IterateConnections, ms.fileStore.IterateConnections, ms.sentBytesDescription, ms.receivedBytesDescription, ms.sentPacketsDescription, ms.receivedPacketsDescription, ms.flowCountDescription)
+	ms.collect(metricsChannel, ms.activeConnectionsStore.IterateConnections, ms.closedConnectionsStore.IterateConnections, ms.sentBytesDescription, ms.receivedBytesDescription, ms.sentPacketsDescription, ms.receivedPacketsDescription, ms.flowCountDescription)
 	if ms.enableServiceMetrics {
-		ms.collect(metricsChannel, ms.memoryStore.IterateServiceConnections, ms.fileStore.IterateServiceConnections, ms.serviceSentBytesDescription, ms.serviceReceivedBytesDescription, ms.serviceSentPacketsDescription, ms.serviceReceivedPacketsDescription, ms.serviceFlowCountDescription)
+		ms.collect(metricsChannel, ms.activeConnectionsStore.IterateServiceConnections, ms.closedConnectionsStore.IterateServiceConnections, ms.serviceSentBytesDescription, ms.serviceReceivedBytesDescription, ms.serviceSentPacketsDescription, ms.serviceReceivedPacketsDescription, ms.serviceFlowCountDescription)
 	}
 }
 
 func (ms *metricsServer) collect(metricsChannel chan<- prometheus.Metric,
-	memoryStoreIteration func(callback func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64) error) error,
-	fileStoreIteration func(callback func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error) error,
+	activeConnectionsStoreIteration func(callback func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64) error) error,
+	closedConnectionsStoreIteration func(callback func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error) error,
 	sentBytesDescription, receivedBytesDescription, sentPacketsDescription, receivedPacketsDescription, flowCountDescription *prometheus.Desc) {
-	// Prepare open connections for fast lookup during file store iteration
+	// Prepare open connections for fast lookup during closed connections store iteration
 	openConnections := map[netip.Addr]map[netip.Addr]*flow{}
-	if err := memoryStoreIteration(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64) error {
+	if err := activeConnectionsStoreIteration(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64) error {
 		srcIp, ok := utils.ConvertIP(src)
 		if !ok {
 			return fmt.Errorf("error while converting source ip '%s' during metrics collection from open connections: expected byte length 4 or 16, but got %d", src.String(), len(*src))
@@ -162,8 +162,8 @@ func (ms *metricsServer) collect(metricsChannel chan<- prometheus.Metric,
 		ms.reportError(metricsChannel, err)
 	}
 
-	// Create metrics from the file store using the open connection data if available
-	if err := fileStoreIteration(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+	// Create metrics from the closed connections store using the open connection data if available
+	if err := closedConnectionsStoreIteration(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
 		// Check for open connection to add the metrics
 		srcIp, ok := utils.ConvertIP(src)
 		if !ok {

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	ct "github.com/florianl/go-conntrack"
-	"github.com/gardener/network-traffic-gauger/pkg/filestore"
-	"github.com/gardener/network-traffic-gauger/pkg/memorystore"
+	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
+	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
 	"github.com/gardener/network-traffic-gauger/pkg/metrics"
 	"github.com/gardener/network-traffic-gauger/pkg/setup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
@@ -29,9 +29,8 @@ type runAgentCommand struct {
 	netfilterTraceConnectionChange      bool
 	netfilterIgnoreLoopbackTraffic      bool
 	netfilterIgnoreBufferErrors         bool
-	fileStoreDirectory                  string
-	fileStoreChannelBufferSize          int
-	fileStoreTraceStores                bool
+	closedConnectionsChannelBufferSize  int
+	closedConnectionsTraceStores        bool
 	metricsPort                         int
 	metricsEnableErrorLog               bool
 	metricsEnableServiceMetrics         bool
@@ -57,9 +56,8 @@ func CreateRunAgentCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&rac.netfilterTraceConnectionChange, "trace-connection-changes", false, "trace connection changes to stderr")
 	cmd.Flags().BoolVar(&rac.netfilterIgnoreLoopbackTraffic, "ignore-loopback-traffic", true, "ignore local traffic on the loopback device")
 	cmd.Flags().BoolVar(&rac.netfilterIgnoreBufferErrors, "ignore-event-buffer-errors", false, "ignore errors related to buffer handling of netfilter connection tracking events")
-	cmd.Flags().StringVar(&rac.fileStoreDirectory, "file-store-directory", "/var/log/net-gauger", "directory used for storage of flow data")
-	cmd.Flags().IntVar(&rac.fileStoreChannelBufferSize, "file-store-channel-buffer-size", 1024, "size of the file store channel buffer")
-	cmd.Flags().BoolVar(&rac.fileStoreTraceStores, "trace-file-stores", false, "trace store operations on the file storage")
+	cmd.Flags().IntVar(&rac.closedConnectionsChannelBufferSize, "closed-connections-channel-buffer-size", 1024, "size of the closed connections channel buffer")
+	cmd.Flags().BoolVar(&rac.closedConnectionsTraceStores, "trace-closed-connections", false, "trace close connection operations")
 	cmd.Flags().IntVar(&rac.metricsPort, "metrics-port", 16160, "port to use for serving metrics (set to '0' to disable metrics serving)")
 	cmd.Flags().BoolVar(&rac.metricsEnableErrorLog, "enable-metrics-error-log", true, "enable error log in the metrics server")
 	cmd.Flags().BoolVar(&rac.metricsEnableServiceMetrics, "enable-service-metrics", true, "enable metrics for kubernetes services")
@@ -82,22 +80,16 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 	eventChannel := make(chan ct.Con, rac.netfilterEventChannelBufferSize)
 	defer close(eventChannel)
 
-	log.Infof("Initializing file store...")
-	if err := filestore.EnsureDirExists(rac.fileStoreDirectory); err != nil {
-		return fmt.Errorf("could not create file store directory '%s': %w", rac.fileStoreDirectory, err)
-	}
-	store := filestore.NewFileStore(rac.fileStoreDirectory)
-	if err := store.Load(); err != nil {
-		return fmt.Errorf("error while loading existing file store content from directory '%s': %w", rac.fileStoreDirectory, err)
-	}
+	log.Infof("Initializing closed connections store...")
+	closedConnectionsStore := closed.NewStore()
 
-	log.Infof("Initializing memory store...")
-	memoryStore := memorystore.NewMemoryStore(store, rac.fileStoreChannelBufferSize, rac.fileStoreTraceStores, rac.netfilterTraceConnectionChange)
-	memoryStore.StartStorageWorker()
-	defer memoryStore.StopStorageWorker()
+	log.Infof("Initializing active connections store...")
+	activeConnectionsStore := active.NewStore(closedConnectionsStore, rac.closedConnectionsChannelBufferSize, rac.closedConnectionsTraceStores, rac.netfilterTraceConnectionChange)
+	activeConnectionsStore.StartStorageWorker()
+	defer activeConnectionsStore.StopStorageWorker()
 
 	log.Infof("Starting metrics server...")
-	metricsServer := metrics.NewMetricsServer(store, memoryStore, rac.metricsPort, rac.metricsEnableErrorLog, rac.metricsEnableServiceMetrics, rac.metricsEnableByteMetrics, rac.metricsEnablePacketMetrics, rac.metricsEnableFlowCountMetrics, rac.metricsReportErrorsDuringCollection)
+	metricsServer := metrics.NewMetricsServer(activeConnectionsStore, closedConnectionsStore, rac.metricsPort, rac.metricsEnableErrorLog, rac.metricsEnableServiceMetrics, rac.metricsEnableByteMetrics, rac.metricsEnablePacketMetrics, rac.metricsEnableFlowCountMetrics, rac.metricsReportErrorsDuringCollection)
 	go func() {
 		metricsServer.ServiceMetrics()
 	}()
@@ -155,7 +147,7 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 		case e := <-eventErrorChannel:
 			return fmt.Errorf("error during connection tracking event retrieval: %w", e)
 		case c := <-eventChannel:
-			rac.handleConnection(memoryStore, &c, log, "events", true, nil)
+			rac.handleConnection(activeConnectionsStore, &c, log, "events", true, nil)
 		case t := <-ticker.C:
 			log.Infof("Dumping netfilter connection tracking table at '%s'...", t)
 			for family := range []ct.Family{ct.IPv4, ct.IPv6} {
@@ -165,18 +157,18 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 					continue
 				}
 				for _, c := range table {
-					rac.handleConnection(memoryStore, &c, log, "dump", false, &t)
+					rac.handleConnection(activeConnectionsStore, &c, log, "dump", false, &t)
 				}
 			}
 		}
 	}
 }
 
-func (rac *runAgentCommand) handleConnection(memoryStore memorystore.MemoryStore, c *ct.Con, log *logrus.Entry, traceSource string, closed bool, time *time.Time) {
+func (rac *runAgentCommand) handleConnection(activeConnectionsStore active.Store, c *ct.Con, log *logrus.Entry, traceSource string, closed bool, time *time.Time) {
 	if rac.netfilterIgnoreLoopbackTraffic && c.Origin.Src.IsLoopback() && c.Origin.Dst.IsLoopback() {
 		return
 	}
 	utils.TraceConnection(rac.netfilterTraceConnections, log, c, traceSource)
 	t := utils.GetTime(time, c)
-	memoryStore.HandleConnection(c, traceSource, closed, t)
+	activeConnectionsStore.HandleConnection(c, traceSource, closed, t)
 }

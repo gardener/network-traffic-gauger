@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package filestore
+package closed
 
 import (
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
 
+	"github.com/gardener/network-traffic-gauger/pkg/utils"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -31,25 +31,16 @@ var _ = Describe("file store test", func() {
 		shortIpV4Addresses = []net.IP{net.ParseIP("127.0.0.1").To4(), net.ParseIP("0.0.0.0").To4(), net.ParseIP("255.255.255.255").To4(), net.ParseIP("192.168.123.45").To4(), net.ParseIP("10.11.12.13").To4()}
 		ipV6Addresses      = []net.IP{net.ParseIP("::1"), net.ParseIP("::"), net.ParseIP("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), net.ParseIP("2001:db8:1234:5678:abcd:ef01:9876:5432"), net.ParseIP("fc00::7654")}
 
-		tempDir string
-		store   FileStore
+		store Store
 	)
 
 	BeforeEach(func() {
-		var err error
-		tempDir, err = os.MkdirTemp(os.TempDir(), "store-test")
-		Expect(err).To(BeNil())
-		store = NewFileStore(tempDir)
-	})
-
-	AfterEach(func() {
-		Expect(os.RemoveAll(tempDir)).To(BeNil())
+		store = NewStore()
 	})
 
 	DescribeTable("should store and reload flow data",
 		func(flows []flow, expectError bool) {
-			By("initialize store")
-			Expect(store.Load()).To(BeNil())
+			By("empty store")
 			entries := 0
 			Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
 				entries++
@@ -76,19 +67,86 @@ var _ = Describe("file store test", func() {
 			Expect(store.IterateConnections(storeConnectionClosure(ordinaryConnections, ordinaryConnectionCounts))).To(BeNil())
 			Expect(store.IterateServiceConnections(storeConnectionClosure(serviceConnections, serviceConnectionCounts))).To(BeNil())
 
-			By("reload store")
-			newStore := NewFileStore(tempDir)
-			Expect(newStore.Load()).To(BeNil())
-			reloadedOrdinaryConnections := map[netip.Addr]map[netip.Addr]*flow{}
-			reloadedOrdinaryConnectionCounts := map[netip.Addr]map[netip.Addr]*uint64{}
-			reloadedServiceConnections := map[netip.Addr]map[netip.Addr]*flow{}
-			reloadedServiceConnectionCounts := map[netip.Addr]map[netip.Addr]*uint64{}
-			Expect(newStore.IterateConnections(storeConnectionClosure(reloadedOrdinaryConnections, reloadedOrdinaryConnectionCounts))).To(BeNil())
-			Expect(newStore.IterateServiceConnections(storeConnectionClosure(reloadedServiceConnections, reloadedServiceConnectionCounts))).To(BeNil())
+			By("calculate flows")
+			calculatedOrdinaryConnections := map[netip.Addr]map[netip.Addr]*flow{}
+			calculatedOrdinaryConnectionCounts := map[netip.Addr]map[netip.Addr]*uint64{}
+			calculatedServiceConnections := map[netip.Addr]map[netip.Addr]*flow{}
+			calculatedServiceConnectionCounts := map[netip.Addr]map[netip.Addr]*uint64{}
+			for n, f := range flows {
+				By(fmt.Sprintf("calculating flow %d", n))
+				srcKey, ok := utils.ConvertIP(f.src)
+				Expect(ok).To(BeTrue())
+				dstMap, exists := calculatedOrdinaryConnections[srcKey]
+				if !exists {
+					dstMap = map[netip.Addr]*flow{}
+					calculatedOrdinaryConnections[srcKey] = dstMap
+				}
+				dstCountsMap, exists := calculatedOrdinaryConnectionCounts[srcKey]
+				if !exists {
+					dstCountsMap = map[netip.Addr]*uint64{}
+					calculatedOrdinaryConnectionCounts[srcKey] = dstCountsMap
+				}
+				dstKey, ok := utils.ConvertIP(f.dst)
+				Expect(ok).To(BeTrue())
+				calculatedFlow, exists := dstMap[dstKey]
+				if !exists {
+					calculatedFlow = &flow{
+						src:    f.src,
+						dst:    f.dst,
+						svcDst: f.dst,
+					}
+					dstMap[dstKey] = calculatedFlow
+				}
+				calculatedFlow.receivedBytes += f.receivedBytes
+				calculatedFlow.receivedPackets += f.receivedPackets
+				calculatedFlow.sentBytes += f.sentBytes
+				calculatedFlow.sentPackets += f.sentPackets
+				calculatedCount, exists := dstCountsMap[dstKey]
+				if !exists {
+					var count uint64 = 0
+					calculatedCount = &count
+					dstCountsMap[dstKey] = calculatedCount
+				}
+				*calculatedCount += 1
+				if !f.dst.Equal(*f.svcDst) {
+					svcDstMap, exists := calculatedServiceConnections[srcKey]
+					if !exists {
+						svcDstMap = map[netip.Addr]*flow{}
+						calculatedServiceConnections[srcKey] = svcDstMap
+					}
+					svcDstCountsMap, exists := calculatedServiceConnectionCounts[srcKey]
+					if !exists {
+						svcDstCountsMap = map[netip.Addr]*uint64{}
+						calculatedServiceConnectionCounts[srcKey] = svcDstCountsMap
+					}
+					svcDstKey, ok := utils.ConvertIP(f.svcDst)
+					Expect(ok).To(BeTrue())
+					calculatedSvcFlow, exists := svcDstMap[svcDstKey]
+					if !exists {
+						calculatedSvcFlow = &flow{
+							src:    f.src,
+							dst:    f.svcDst,
+							svcDst: f.svcDst,
+						}
+						svcDstMap[svcDstKey] = calculatedSvcFlow
+					}
+					calculatedSvcFlow.receivedBytes += f.receivedBytes
+					calculatedSvcFlow.receivedPackets += f.receivedPackets
+					calculatedSvcFlow.sentBytes += f.sentBytes
+					calculatedSvcFlow.sentPackets += f.sentPackets
+					calculatedSvcCount, exists := svcDstCountsMap[svcDstKey]
+					if !exists {
+						var count uint64 = 0
+						calculatedSvcCount = &count
+						svcDstCountsMap[svcDstKey] = calculatedSvcCount
+					}
+					*calculatedSvcCount += 1
+				}
+			}
 
 			By("compare data")
-			compareConnections(ordinaryConnections, ordinaryConnectionCounts, reloadedOrdinaryConnections, reloadedOrdinaryConnectionCounts)
-			compareConnections(serviceConnections, serviceConnectionCounts, reloadedServiceConnections, reloadedServiceConnectionCounts)
+			compareConnections(ordinaryConnections, ordinaryConnectionCounts, calculatedOrdinaryConnections, calculatedOrdinaryConnectionCounts)
+			compareConnections(serviceConnections, serviceConnectionCounts, calculatedServiceConnections, calculatedServiceConnectionCounts)
 		},
 
 		Entry("no flow", []flow{}, false),
