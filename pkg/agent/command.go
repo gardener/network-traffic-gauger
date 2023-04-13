@@ -122,6 +122,9 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 		}
 	}
 
+	log.Infof("Triggering initial connection tracking table dump...")
+	rac.dumpConnectionTrackingTable(log, nfctDump, activeConnectionsStore, time.Now())
+
 	log.Infof("Setting up ticker with period '%s'...", rac.netfilterDumpPeriod)
 	ticker := time.NewTicker(rac.netfilterDumpPeriod)
 	defer ticker.Stop()
@@ -149,19 +152,24 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 		case c := <-eventChannel:
 			rac.handleConnection(activeConnectionsStore, &c, log, "events", true, nil)
 		case t := <-ticker.C:
-			log.Infof("Dumping netfilter connection tracking table at '%s'...", t)
-			for family := range []ct.Family{ct.IPv4, ct.IPv6} {
-				table, err := nfctDump.Dump(ct.Conntrack, ct.Family(family))
-				if err != nil {
-					log.WithError(err).Warnf("Error during dumping connection tracking table: %v", err)
-					continue
-				}
-				for _, c := range table {
-					rac.handleConnection(activeConnectionsStore, &c, log, "dump", false, &t)
-				}
-			}
+			rac.dumpConnectionTrackingTable(log, nfctDump, activeConnectionsStore, t)
 		}
 	}
+}
+
+func (rac *runAgentCommand) dumpConnectionTrackingTable(log *logrus.Entry, nfctDump *ct.Nfct, activeConnectionsStore active.Store, t time.Time) {
+	log.Infof("Dumping netfilter connection tracking table at '%s'...", t)
+	for family := range []ct.Family{ct.IPv4, ct.IPv6} {
+		table, err := nfctDump.Dump(ct.Conntrack, ct.Family(family))
+		if err != nil {
+			log.WithError(err).Warnf("Error during dumping connection tracking table: %v", err)
+			continue
+		}
+		for _, c := range table {
+			rac.handleConnection(activeConnectionsStore, &c, log, "dump", false, &t)
+		}
+	}
+
 }
 
 func (rac *runAgentCommand) handleConnection(activeConnectionsStore active.Store, c *ct.Con, log *logrus.Entry, traceSource string, closed bool, time *time.Time) {
