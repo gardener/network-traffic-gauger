@@ -12,6 +12,7 @@ import (
 	ct "github.com/florianl/go-conntrack"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
+	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
 	"github.com/gardener/network-traffic-gauger/pkg/metrics"
 	"github.com/gardener/network-traffic-gauger/pkg/setup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
@@ -21,23 +22,27 @@ import (
 )
 
 type runAgentCommand struct {
-	netfilterDumpPeriod                 time.Duration
-	netfilterEventChannelBufferSize     int
-	netfilterEventReceiveBufferSize     int
-	netfilterCreateEventsEnabled        bool
-	netfilterTraceConnections           bool
-	netfilterTraceConnectionChange      bool
-	netfilterIgnoreLoopbackTraffic      bool
-	netfilterIgnoreBufferErrors         bool
-	closedConnectionsChannelBufferSize  int
-	closedConnectionsTraceStores        bool
-	metricsPort                         int
-	metricsEnableErrorLog               bool
-	metricsEnableServiceMetrics         bool
-	metricsEnableByteMetrics            bool
-	metricsEnablePacketMetrics          bool
-	metricsEnableFlowCountMetrics       bool
-	metricsReportErrorsDuringCollection bool
+	netfilterDumpPeriod                  time.Duration
+	netfilterEventChannelBufferSize      int
+	netfilterEventReceiveBufferSize      int
+	netfilterCreateEventsEnabled         bool
+	netfilterTraceConnections            bool
+	netfilterTraceConnectionChange       bool
+	netfilterIgnoreLoopbackTraffic       bool
+	netfilterIgnoreBufferErrors          bool
+	closedConnectionsChannelBufferSize   int
+	closedConnectionsTraceStores         bool
+	closedConnectionsCleanup             bool
+	closedConnectionsCleanupReportedOnly bool
+	closedConnectionsCleanupPeriod       time.Duration
+	closedConnectionsTraceCleanups       bool
+	metricsPort                          int
+	metricsEnableErrorLog                bool
+	metricsEnableServiceMetrics          bool
+	metricsEnableByteMetrics             bool
+	metricsEnablePacketMetrics           bool
+	metricsEnableFlowCountMetrics        bool
+	metricsReportErrorsDuringCollection  bool
 }
 
 func CreateRunAgentCmd() *cobra.Command {
@@ -58,6 +63,10 @@ func CreateRunAgentCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&rac.netfilterIgnoreBufferErrors, "ignore-event-buffer-errors", false, "ignore errors related to buffer handling of netfilter connection tracking events")
 	cmd.Flags().IntVar(&rac.closedConnectionsChannelBufferSize, "closed-connections-channel-buffer-size", 1024, "size of the closed connections channel buffer")
 	cmd.Flags().BoolVar(&rac.closedConnectionsTraceStores, "trace-closed-connections", false, "trace close connection operations")
+	cmd.Flags().BoolVar(&rac.closedConnectionsCleanup, "cleanup-closed-connections", true, "cleanup closed connections")
+	cmd.Flags().BoolVar(&rac.closedConnectionsCleanupReportedOnly, "cleanup-closed-connections-only-after-reported", true, "cleanup closed connections only after their metrics have been reported at least once")
+	cmd.Flags().DurationVar(&rac.closedConnectionsCleanupPeriod, "cleanup-closed-connections-period", 90*time.Second, "time interval in seconds how often the cleanup of closed connections should happen (defaults to 90s)")
+	cmd.Flags().BoolVar(&rac.closedConnectionsTraceCleanups, "trace-cleanup-closed-connections", false, "trace cleanup operations of closed connections")
 	cmd.Flags().IntVar(&rac.metricsPort, "metrics-port", 16160, "port to use for serving metrics (set to '0' to disable metrics serving)")
 	cmd.Flags().BoolVar(&rac.metricsEnableErrorLog, "enable-metrics-error-log", true, "enable error log in the metrics server")
 	cmd.Flags().BoolVar(&rac.metricsEnableServiceMetrics, "enable-service-metrics", true, "enable metrics for kubernetes services")
@@ -80,11 +89,16 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 	eventChannel := make(chan ct.Con, rac.netfilterEventChannelBufferSize)
 	defer close(eventChannel)
 
+	log.Infof("Initializing active connections lookup table...")
+	activeConnectionsLookupTable := lookup.NewLookupTable()
+
 	log.Infof("Initializing closed connections store...")
-	closedConnectionsStore := closed.NewStore()
+	closedConnectionsStore := closed.NewStore(activeConnectionsLookupTable, rac.closedConnectionsCleanup, rac.closedConnectionsCleanupReportedOnly, rac.closedConnectionsCleanupPeriod, rac.closedConnectionsTraceCleanups)
+	closedConnectionsStore.StartCleanupWorker()
+	defer closedConnectionsStore.StopCleanupWorker()
 
 	log.Infof("Initializing active connections store...")
-	activeConnectionsStore := active.NewStore(closedConnectionsStore, rac.closedConnectionsChannelBufferSize, rac.closedConnectionsTraceStores, rac.netfilterTraceConnectionChange)
+	activeConnectionsStore := active.NewStore(activeConnectionsLookupTable, closedConnectionsStore, rac.closedConnectionsChannelBufferSize, rac.closedConnectionsTraceStores, rac.netfilterTraceConnectionChange)
 	activeConnectionsStore.StartStorageWorker()
 	defer activeConnectionsStore.StopStorageWorker()
 

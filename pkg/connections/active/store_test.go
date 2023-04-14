@@ -8,6 +8,7 @@ import (
 	"net"
 
 	"github.com/florianl/go-conntrack"
+	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -30,7 +31,7 @@ var _ = Describe("active connections store test", func() {
 	)
 
 	BeforeEach(func() {
-		store = NewStore(nil, 1024, false, false)
+		store = NewStore(lookup.NewLookupTable(), nil, 1024, false, false)
 	})
 
 	DescribeTable("should store/update connection data",

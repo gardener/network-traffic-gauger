@@ -11,6 +11,7 @@ import (
 
 	ct "github.com/florianl/go-conntrack"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
+	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
@@ -26,7 +27,7 @@ type Store interface {
 type store struct {
 	openConnections        map[uint32]*connectionData
 	openConnectionsLock    sync.RWMutex
-	lookupTable            ActiveConnectionPairs
+	lookupTable            lookup.ActiveConnectionPairs
 	storageChannel         chan connectionData
 	closedConnections      closed.Store
 	traceClosedConnections bool
@@ -48,10 +49,10 @@ type connectionData struct {
 	lastChange      time.Time
 }
 
-func NewStore(closedConnections closed.Store, channelBufferSize int, traceClosedConnections bool, traceConnectionChange bool) Store {
+func NewStore(lookupTable lookup.ActiveConnectionPairs, closedConnections closed.Store, channelBufferSize int, traceClosedConnections bool, traceConnectionChange bool) Store {
 	return &store{
 		openConnections:        map[uint32]*connectionData{},
-		lookupTable:            NewLookupTable(),
+		lookupTable:            lookupTable,
 		storageChannel:         make(chan connectionData, channelBufferSize),
 		closedConnections:      closedConnections,
 		traceClosedConnections: traceClosedConnections,
@@ -72,7 +73,7 @@ func (ms *store) StartStorageWorker() {
 				ms.log.Infof("About to store flow: %s:%d->%s:%d (%s:%d), sent/received %d/%d (%d/%d)",
 					cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort, cd.sentBytes, cd.receivedBytes, cd.sentPackets, cd.receivedPackets)
 			}
-			if err := ms.closedConnections.StoreFlow(&cd.src, &cd.dst, &cd.svcDst, cd.sentBytes, cd.receivedBytes, cd.sentPackets, cd.receivedPackets); err != nil {
+			if err := ms.closedConnections.StoreFlow(&cd.src, &cd.dst, &cd.svcDst, cd.sentBytes, cd.receivedBytes, cd.sentPackets, cd.receivedPackets, cd.lastChange); err != nil {
 				ms.log.Errorf("Failed to store flow: %s:%d->%s:%d (%s:%d), sent/received %d/%d (%d/%d), reason: %v",
 					cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort, cd.sentBytes, cd.receivedBytes, cd.sentPackets, cd.receivedPackets, err)
 			}

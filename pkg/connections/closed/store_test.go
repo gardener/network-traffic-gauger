@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"time"
 
+	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
@@ -23,9 +25,12 @@ type flow struct {
 	receivedBytes   uint64
 	sentPackets     uint64
 	receivedPackets uint64
+	lastUpdate      time.Time
 }
 
-var _ = Describe("file store test", func() {
+type internalStore = store
+
+var _ = Describe("closed connection store test", func() {
 	var (
 		ipV4Addresses      = []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("0.0.0.0"), net.ParseIP("255.255.255.255"), net.ParseIP("192.168.123.45"), net.ParseIP("10.11.12.13")}
 		shortIpV4Addresses = []net.IP{net.ParseIP("127.0.0.1").To4(), net.ParseIP("0.0.0.0").To4(), net.ParseIP("255.255.255.255").To4(), net.ParseIP("192.168.123.45").To4(), net.ParseIP("10.11.12.13").To4()}
@@ -35,10 +40,10 @@ var _ = Describe("file store test", func() {
 	)
 
 	BeforeEach(func() {
-		store = NewStore()
+		store = NewStore(nil, false, false, 0, false)
 	})
 
-	DescribeTable("should store and reload flow data",
+	DescribeTable("should store flow data",
 		func(flows []flow, expectError bool) {
 			By("empty store")
 			entries := 0
@@ -56,7 +61,7 @@ var _ = Describe("file store test", func() {
 			By("store flows")
 			for n, f := range flows {
 				By(fmt.Sprintf("storing flow %d", n))
-				Expect(store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets)).To(BeNil())
+				Expect(store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets, f.lastUpdate)).To(BeNil())
 			}
 
 			By("get intermediate copy of flow data")
@@ -150,67 +155,207 @@ var _ = Describe("file store test", func() {
 		},
 
 		Entry("no flow", []flow{}, false),
-		Entry("single ipv4 flow", []flow{{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)}}, false),
-		Entry("single (short) ipv4 flow", []flow{{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)}}, false),
-		Entry("single ipv6 flow", []flow{{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1234567890), uint64(987654321), uint64(1029384756), uint64(918273645)}}, false),
+		Entry("single ipv4 flow", []flow{{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}}}, false),
+		Entry("single (short) ipv4 flow", []flow{{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}}}, false),
+		Entry("single ipv6 flow", []flow{{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1234567890), uint64(987654321), uint64(1029384756), uint64(918273645), time.Time{}}}, false),
 		Entry("several separate ipv4 flows", []flow{
-			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)},
-			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40)},
-			{&ipV4Addresses[2], &ipV4Addresses[3], &ipV4Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400)},
-			{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000)},
-			{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000)},
+			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40), time.Time{}},
+			{&ipV4Addresses[2], &ipV4Addresses[3], &ipV4Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400), time.Time{}},
+			{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000), time.Time{}},
+			{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000), time.Time{}},
 		}, false),
 		Entry("several separate (short) ipv4 flows", []flow{
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40)},
-			{&shortIpV4Addresses[2], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400)},
-			{&shortIpV4Addresses[3], &shortIpV4Addresses[4], &shortIpV4Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000)},
-			{&shortIpV4Addresses[4], &shortIpV4Addresses[0], &shortIpV4Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000)},
+			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40), time.Time{}},
+			{&shortIpV4Addresses[2], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400), time.Time{}},
+			{&shortIpV4Addresses[3], &shortIpV4Addresses[4], &shortIpV4Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000), time.Time{}},
+			{&shortIpV4Addresses[4], &shortIpV4Addresses[0], &shortIpV4Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000), time.Time{}},
 		}, false),
 		Entry("several separate ipv6 flows", []flow{
-			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)},
-			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40)},
-			{&ipV6Addresses[2], &ipV6Addresses[3], &ipV6Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400)},
-			{&ipV6Addresses[3], &ipV6Addresses[4], &ipV6Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000)},
-			{&ipV6Addresses[4], &ipV6Addresses[0], &ipV6Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000)},
+			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40), time.Time{}},
+			{&ipV6Addresses[2], &ipV6Addresses[3], &ipV6Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400), time.Time{}},
+			{&ipV6Addresses[3], &ipV6Addresses[4], &ipV6Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000), time.Time{}},
+			{&ipV6Addresses[4], &ipV6Addresses[0], &ipV6Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000), time.Time{}},
 		}, false),
 		Entry("several repeated ipv4 flows", []flow{
-			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)},
-			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44)},
-			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444)},
-			{&ipV4Addresses[0], &ipV4Addresses[3], &ipV4Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45)},
-			{&ipV4Addresses[0], &ipV4Addresses[3], &ipV4Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456)},
-			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401)},
-			{&ipV4Addresses[1], &ipV4Addresses[3], &ipV4Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402)},
-			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403)},
-			{&ipV4Addresses[1], &ipV4Addresses[3], &ipV4Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404)},
-			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405)},
+			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44), time.Time{}},
+			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444), time.Time{}},
+			{&ipV4Addresses[0], &ipV4Addresses[3], &ipV4Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45), time.Time{}},
+			{&ipV4Addresses[0], &ipV4Addresses[3], &ipV4Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456), time.Time{}},
+			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401), time.Time{}},
+			{&ipV4Addresses[1], &ipV4Addresses[3], &ipV4Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402), time.Time{}},
+			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403), time.Time{}},
+			{&ipV4Addresses[1], &ipV4Addresses[3], &ipV4Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404), time.Time{}},
+			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405), time.Time{}},
 		}, false),
 		Entry("several repeated (short) ipv4 flows", []flow{
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44)},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444)},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45)},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456)},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401)},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[3], &shortIpV4Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402)},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403)},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[3], &shortIpV4Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404)},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405)},
+			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44), time.Time{}},
+			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444), time.Time{}},
+			{&shortIpV4Addresses[0], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45), time.Time{}},
+			{&shortIpV4Addresses[0], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456), time.Time{}},
+			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401), time.Time{}},
+			{&shortIpV4Addresses[1], &shortIpV4Addresses[3], &shortIpV4Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402), time.Time{}},
+			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403), time.Time{}},
+			{&shortIpV4Addresses[1], &shortIpV4Addresses[3], &shortIpV4Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404), time.Time{}},
+			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405), time.Time{}},
 		}, false),
 		Entry("several repeated ipv6 flows", []flow{
-			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4)},
-			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44)},
-			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444)},
-			{&ipV6Addresses[0], &ipV6Addresses[3], &ipV6Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45)},
-			{&ipV6Addresses[0], &ipV6Addresses[3], &ipV6Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456)},
-			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401)},
-			{&ipV6Addresses[1], &ipV6Addresses[3], &ipV6Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402)},
-			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403)},
-			{&ipV6Addresses[1], &ipV6Addresses[3], &ipV6Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404)},
-			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405)},
+			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44), time.Time{}},
+			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444), time.Time{}},
+			{&ipV6Addresses[0], &ipV6Addresses[3], &ipV6Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45), time.Time{}},
+			{&ipV6Addresses[0], &ipV6Addresses[3], &ipV6Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456), time.Time{}},
+			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401), time.Time{}},
+			{&ipV6Addresses[1], &ipV6Addresses[3], &ipV6Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402), time.Time{}},
+			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403), time.Time{}},
+			{&ipV6Addresses[1], &ipV6Addresses[3], &ipV6Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404), time.Time{}},
+			{&ipV6Addresses[1], &ipV6Addresses[2], &ipV6Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405), time.Time{}},
 		}, false),
 	)
+
+	Context("should cleanup closed connections properly", func() {
+		var (
+			lookupTable lookup.ActiveConnectionPairs
+		)
+
+		BeforeEach(func() {
+			lookupTable = lookup.NewLookupTable()
+			store = NewStore(lookupTable, true, false, 1*time.Nanosecond, false)
+		})
+
+		DescribeTable("should cleanup closed connections",
+			func(flows []flow, lookupTableInserts []flow, cleanupReportedOnly bool, reinsert bool, iterateAfterReinsert bool, expectedAfterInsert int, expectedAfterCleanup int) {
+				By("initialize store")
+				store.(*internalStore).cleanupReportedOnly = cleanupReportedOnly
+
+				By("store flows")
+				for _, f := range flows {
+					store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets, f.lastUpdate)
+				}
+				for _, f := range lookupTableInserts {
+					lookupTable.Add(*f.src, *f.dst, *f.svcDst)
+				}
+
+				By("count flows after insert")
+				entries := 0
+				Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+					entries++
+					return nil
+				})).To(BeNil())
+				Expect(store.IterateServiceConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+					entries++
+					return nil
+				})).To(BeNil())
+				Expect(entries).To(Equal(expectedAfterInsert))
+
+				if reinsert {
+					By("reinsert flows to reset report flag")
+					for _, f := range flows {
+						store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets, f.lastUpdate)
+					}
+					if iterateAfterReinsert {
+						By("iterate after reinserting flows to simulate metrics scraping")
+						Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+							return nil
+						})).To(BeNil())
+						Expect(store.IterateServiceConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+							return nil
+						})).To(BeNil())
+					}
+				}
+
+				By("perform cleanup")
+				store.(*internalStore).performCleanup(time.Now())
+
+				By("count flows after cleanup")
+				entries = 0
+				Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+					entries++
+					return nil
+				})).To(BeNil())
+				Expect(store.IterateServiceConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+					entries++
+					return nil
+				})).To(BeNil())
+				Expect(entries).To(Equal(expectedAfterCleanup))
+			},
+
+			Entry("no flow, empty lookup table", []flow{}, []flow{}, false, true, false, 0, 0),
+			Entry("single flow, empty lookup table", []flow{{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)}}, []flow{}, false, true, false, 2, 0),
+			Entry("multiple flows, empty lookup table", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, []flow{}, false, true, false, 8, 0),
+			Entry("multiple flows with active entries, empty lookup table", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+			}, []flow{}, false, true, false, 8, 4),
+			Entry("single flow with lookup table", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, false, true, false, 2, 2),
+			Entry("multiple flows with lookup table", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, false, true, false, 8, 4),
+			Entry("multiple flows with active entries with lookup table", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+			}, []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, false, true, false, 8, 6),
+			Entry("multiple flows with lookup table and keeping of unreported metrics", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, true, true, false, 8, 8),
+			Entry("multiple flows with active entries with lookup table and keeping of unreported metrics", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+			}, []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, true, true, false, 8, 8),
+			Entry("multiple flows with lookup table and keeping of unreported metrics with iteration", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, true, true, true, 8, 4),
+			Entry("multiple flows with active entries with lookup table and keeping of unreported metrics with iteration", []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[3], &ipV4Addresses[4], &ipV4Addresses[0], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+				{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+				{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], 1, 2, 3, 4, time.Now().Add(+1 * time.Minute)},
+			}, []flow{
+				{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], 1, 2, 3, 4, time.Now().Add(-1 * time.Minute)},
+			}, true, true, true, 8, 6),
+		)
+	})
 })
 
 func storeConnectionClosure(connections map[netip.Addr]map[netip.Addr]*flow, counts map[netip.Addr]map[netip.Addr]*uint64) func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
