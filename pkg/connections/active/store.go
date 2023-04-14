@@ -26,6 +26,7 @@ type Store interface {
 type store struct {
 	openConnections        map[uint32]*connectionData
 	openConnectionsLock    sync.RWMutex
+	lookupTable            ActiveConnectionPairs
 	storageChannel         chan connectionData
 	closedConnections      closed.Store
 	traceClosedConnections bool
@@ -50,6 +51,7 @@ type connectionData struct {
 func NewStore(closedConnections closed.Store, channelBufferSize int, traceClosedConnections bool, traceConnectionChange bool) Store {
 	return &store{
 		openConnections:        map[uint32]*connectionData{},
+		lookupTable:            NewLookupTable(),
 		storageChannel:         make(chan connectionData, channelBufferSize),
 		closedConnections:      closedConnections,
 		traceClosedConnections: traceClosedConnections,
@@ -74,6 +76,7 @@ func (ms *store) StartStorageWorker() {
 				ms.log.Errorf("Failed to store flow: %s:%d->%s:%d (%s:%d), sent/received %d/%d (%d/%d), reason: %v",
 					cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort, cd.sentBytes, cd.receivedBytes, cd.sentPackets, cd.receivedPackets, err)
 			}
+			ms.lookupTable.Remove(cd.src, cd.dst, cd.svcDst)
 		}
 	}()
 }
@@ -91,6 +94,7 @@ func (ms *store) HandleConnection(c *ct.Con, traceSource string, closed bool, ti
 		if !closed {
 			ms.openConnections[*c.ID] = cd
 		}
+		ms.lookupTable.Add(cd.src, cd.dst, cd.svcDst)
 		if ms.traceConnectionChange {
 			ms.log.Infof("Found new connection via %s: %s:%d->%s:%d (%s:%d)", traceSource,
 				cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort)
@@ -107,6 +111,7 @@ func (ms *store) HandleConnection(c *ct.Con, traceSource string, closed bool, ti
 		}
 		ms.storageChannel <- *cd
 		cd.reset(c, time)
+		ms.lookupTable.Add(cd.src, cd.dst, cd.svcDst)
 		if ms.traceConnectionChange {
 			ms.log.Infof("Indirectly found new connection via %s: %s:%d->%s:%d (%s:%d)", traceSource,
 				cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort)
