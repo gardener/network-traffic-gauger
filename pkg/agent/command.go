@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ct "github.com/florianl/go-conntrack"
+	"github.com/gardener/network-traffic-gauger/pkg/cluster"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
@@ -43,6 +44,11 @@ type runAgentCommand struct {
 	metricsEnablePacketMetrics           bool
 	metricsEnableFlowCountMetrics        bool
 	metricsReportErrorsDuringCollection  bool
+	clusterRanges                        []string
+	localRanges                          []string
+	extractLocalRangesFromKubernetes     bool
+	kubeconfigPath                       string
+	nodeName                             string
 }
 
 func CreateRunAgentCmd() *cobra.Command {
@@ -74,11 +80,17 @@ func CreateRunAgentCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&rac.metricsEnablePacketMetrics, "enable-packet-metrics", true, "enable metrics indicating how many packets are transmitted/received")
 	cmd.Flags().BoolVar(&rac.metricsEnableFlowCountMetrics, "enable-flow-count-metrics", true, "enable metrics indicating how many connections are created")
 	cmd.Flags().BoolVar(&rac.metricsReportErrorsDuringCollection, "report-errors-during-metrics-collection", true, "enable error reporting during metrics collection, which might interrupt metrics collection")
+	cmd.Flags().StringSliceVar(&rac.clusterRanges, "cluster-ranges", []string{}, "ip address ranges in cidr notation, which should be considered connection type 'cluster'")
+	cmd.Flags().StringSliceVar(&rac.localRanges, "local-ranges", []string{}, "ip address ranges in cidr notation, which should be considered connection type 'local'")
+	cmd.Flags().BoolVar(&rac.extractLocalRangesFromKubernetes, "extract-local-ranges-from-kubernetes", false, "extract local ip address ranges from kubernetes")
+	cmd.Flags().StringVar(&rac.kubeconfigPath, "kubeconfig", "", "path to a kubernetes configuration file")
+	cmd.Flags().StringVar(&rac.nodeName, "node-name", "", "name of the local node in kubernetes")
 	return cmd
 }
 
 func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 	log := logrus.WithField("cmd", "run-agent")
+	ctx := context.Background()
 
 	log.Infof("Checking netfilter prerequisites...")
 	if enabled, err := setup.CheckNetfilterPrerequisites(); err != nil {
@@ -102,8 +114,17 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 	activeConnectionsStore.StartStorageWorker()
 	defer activeConnectionsStore.StopStorageWorker()
 
+	log.Infof("Initializing cluster information...")
+	clusterInfo, err := cluster.NewClusterInfo(rac.localRanges, rac.clusterRanges, rac.extractLocalRangesFromKubernetes, rac.kubeconfigPath, rac.nodeName)
+	if err != nil {
+		return fmt.Errorf("failed to initialize cluster info with network ranges local='%v', cluster='%v': %w", rac.localRanges, rac.clusterRanges, err)
+	}
+	if err := clusterInfo.Update(ctx); err != nil {
+		return fmt.Errorf("failed to initialize cluster info with local addresses: %w", err)
+	}
+
 	log.Infof("Starting metrics server...")
-	metricsServer := metrics.NewMetricsServer(activeConnectionsStore, closedConnectionsStore, rac.metricsPort, rac.metricsEnableErrorLog, rac.metricsEnableServiceMetrics, rac.metricsEnableByteMetrics, rac.metricsEnablePacketMetrics, rac.metricsEnableFlowCountMetrics, rac.metricsReportErrorsDuringCollection)
+	metricsServer := metrics.NewMetricsServer(activeConnectionsStore, closedConnectionsStore, clusterInfo, rac.metricsPort, rac.metricsEnableErrorLog, rac.metricsEnableServiceMetrics, rac.metricsEnableByteMetrics, rac.metricsEnablePacketMetrics, rac.metricsEnableFlowCountMetrics, rac.metricsReportErrorsDuringCollection)
 	go func() {
 		metricsServer.ServiceMetrics()
 	}()

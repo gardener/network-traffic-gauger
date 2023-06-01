@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 
+	"github.com/gardener/network-traffic-gauger/pkg/cluster"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
@@ -25,6 +26,7 @@ type MetricsServer interface {
 type metricsServer struct {
 	activeConnectionsStore            active.Store
 	closedConnectionsStore            closed.Store
+	clusterInfo                       cluster.ClusterInfo
 	port                              int
 	enableErrorLog                    bool
 	enableServiceMetrics              bool
@@ -52,10 +54,11 @@ type flow struct {
 	count           uint64
 }
 
-func NewMetricsServer(activeConnectionsStore active.Store, closedConnectionsStore closed.Store, port int, enableErrorLog bool, enableServiceMetrics bool, enableByteMetrics bool, enablePacketMetrics bool, enableFlowCountMetrics bool, reportErrorsDuringCollection bool) MetricsServer {
+func NewMetricsServer(activeConnectionsStore active.Store, closedConnectionsStore closed.Store, clusterInfo cluster.ClusterInfo, port int, enableErrorLog bool, enableServiceMetrics bool, enableByteMetrics bool, enablePacketMetrics bool, enableFlowCountMetrics bool, reportErrorsDuringCollection bool) MetricsServer {
 	return &metricsServer{
 		activeConnectionsStore:            activeConnectionsStore,
 		closedConnectionsStore:            closedConnectionsStore,
+		clusterInfo:                       clusterInfo,
 		port:                              port,
 		enableErrorLog:                    enableErrorLog,
 		enableServiceMetrics:              enableServiceMetrics,
@@ -63,16 +66,16 @@ func NewMetricsServer(activeConnectionsStore active.Store, closedConnectionsStor
 		enablePacketMetrics:               enablePacketMetrics,
 		enableFlowCountMetrics:            enableFlowCountMetrics,
 		reportErrorsDuringCollection:      reportErrorsDuringCollection,
-		sentBytesDescription:              prometheus.NewDesc("network_transmit_bytes_total", "Total number of bytes transmitted.", []string{"src", "dst"}, nil),
-		receivedBytesDescription:          prometheus.NewDesc("network_receive_bytes_total", "Total number of bytes received.", []string{"src", "dst"}, nil),
-		sentPacketsDescription:            prometheus.NewDesc("network_transmit_packets_total", "Total number of packets transmitted.", []string{"src", "dst"}, nil),
-		receivedPacketsDescription:        prometheus.NewDesc("network_receive_packets_total", "Total number of packets received.", []string{"src", "dst"}, nil),
-		flowCountDescription:              prometheus.NewDesc("network_flow_total", "Total number of network flows.", []string{"src", "dst"}, nil),
-		serviceSentBytesDescription:       prometheus.NewDesc("service_network_transmit_bytes_total", "Total number of bytes transmitted to a service.", []string{"src", "dst"}, nil),
-		serviceReceivedBytesDescription:   prometheus.NewDesc("service_network_receive_bytes_total", "Total number of bytes received from a service.", []string{"src", "dst"}, nil),
-		serviceSentPacketsDescription:     prometheus.NewDesc("service_network_transmit_packets_total", "Total number of packets transmitted to a service.", []string{"src", "dst"}, nil),
-		serviceReceivedPacketsDescription: prometheus.NewDesc("service_network_receive_packets_total", "Total number of packets received from a service.", []string{"src", "dst"}, nil),
-		serviceFlowCountDescription:       prometheus.NewDesc("service_network_flow_total", "Total number of network flows to a service.", []string{"src", "dst"}, nil),
+		sentBytesDescription:              prometheus.NewDesc("network_transmit_bytes_total", "Total number of bytes transmitted.", []string{"src", "dst", "type"}, nil),
+		receivedBytesDescription:          prometheus.NewDesc("network_receive_bytes_total", "Total number of bytes received.", []string{"src", "dst", "type"}, nil),
+		sentPacketsDescription:            prometheus.NewDesc("network_transmit_packets_total", "Total number of packets transmitted.", []string{"src", "dst", "type"}, nil),
+		receivedPacketsDescription:        prometheus.NewDesc("network_receive_packets_total", "Total number of packets received.", []string{"src", "dst", "type"}, nil),
+		flowCountDescription:              prometheus.NewDesc("network_flow_total", "Total number of network flows.", []string{"src", "dst", "type"}, nil),
+		serviceSentBytesDescription:       prometheus.NewDesc("service_network_transmit_bytes_total", "Total number of bytes transmitted to a service.", []string{"src", "dst", "type"}, nil),
+		serviceReceivedBytesDescription:   prometheus.NewDesc("service_network_receive_bytes_total", "Total number of bytes received from a service.", []string{"src", "dst", "type"}, nil),
+		serviceSentPacketsDescription:     prometheus.NewDesc("service_network_transmit_packets_total", "Total number of packets transmitted to a service.", []string{"src", "dst", "type"}, nil),
+		serviceReceivedPacketsDescription: prometheus.NewDesc("service_network_receive_packets_total", "Total number of packets received from a service.", []string{"src", "dst", "type"}, nil),
+		serviceFlowCountDescription:       prometheus.NewDesc("service_network_flow_total", "Total number of network flows to a service.", []string{"src", "dst", "type"}, nil),
 	}
 }
 
@@ -169,12 +172,12 @@ func (ms *metricsServer) collect(metricsChannel chan<- prometheus.Metric,
 		if !ok {
 			return fmt.Errorf("error while converting source ip '%s' during metrics collection from closed connections: expected byte length 4 or 16, but got %d", src.String(), len(*src))
 		}
+		dstIp, ok := utils.ConvertIP(dst)
+		if !ok {
+			return fmt.Errorf("error while converting destination ip '%s' during metrics collection from closed connections: expected byte length 4 or 16, but got %d", dst.String(), len(*dst))
+		}
 		dstMap, exists := openConnections[srcIp]
 		if exists {
-			dstIp, ok := utils.ConvertIP(dst)
-			if !ok {
-				return fmt.Errorf("error while converting destination ip '%s' during metrics collection from closed connections: expected byte length 4 or 16, but got %d", dst.String(), len(*dst))
-			}
 			f, exists := dstMap[dstIp]
 			if exists {
 				sentBytes += f.sentBytes
@@ -185,17 +188,20 @@ func (ms *metricsServer) collect(metricsChannel chan<- prometheus.Metric,
 			}
 		}
 
+		// Check if connection is local, cluster or internet
+		connectionType := ms.determineConnectionType(srcIp, dstIp)
+
 		// Emit the metrics depending on the configuration
 		if ms.enableByteMetrics {
-			metricsChannel <- prometheus.MustNewConstMetric(sentBytesDescription, prometheus.CounterValue, float64(sentBytes), src.String(), dst.String())
-			metricsChannel <- prometheus.MustNewConstMetric(receivedBytesDescription, prometheus.CounterValue, float64(receivedBytes), src.String(), dst.String())
+			metricsChannel <- prometheus.MustNewConstMetric(sentBytesDescription, prometheus.CounterValue, float64(sentBytes), src.String(), dst.String(), connectionType)
+			metricsChannel <- prometheus.MustNewConstMetric(receivedBytesDescription, prometheus.CounterValue, float64(receivedBytes), src.String(), dst.String(), connectionType)
 		}
 		if ms.enablePacketMetrics {
-			metricsChannel <- prometheus.MustNewConstMetric(sentPacketsDescription, prometheus.CounterValue, float64(sentPackets), src.String(), dst.String())
-			metricsChannel <- prometheus.MustNewConstMetric(receivedPacketsDescription, prometheus.CounterValue, float64(receivedPackets), src.String(), dst.String())
+			metricsChannel <- prometheus.MustNewConstMetric(sentPacketsDescription, prometheus.CounterValue, float64(sentPackets), src.String(), dst.String(), connectionType)
+			metricsChannel <- prometheus.MustNewConstMetric(receivedPacketsDescription, prometheus.CounterValue, float64(receivedPackets), src.String(), dst.String(), connectionType)
 		}
 		if ms.enableFlowCountMetrics {
-			metricsChannel <- prometheus.MustNewConstMetric(flowCountDescription, prometheus.CounterValue, float64(count), src.String(), dst.String())
+			metricsChannel <- prometheus.MustNewConstMetric(flowCountDescription, prometheus.CounterValue, float64(count), src.String(), dst.String(), connectionType)
 		}
 		return nil
 	}); err != nil {
@@ -207,4 +213,21 @@ func (ms *metricsServer) reportError(metricsChannel chan<- prometheus.Metric, er
 	if ms.reportErrorsDuringCollection {
 		metricsChannel <- prometheus.NewInvalidMetric(prometheus.NewInvalidDesc(err), err)
 	}
+}
+
+func (ms *metricsServer) determineConnectionType(src netip.Addr, dst netip.Addr) string {
+	srcLocal := ms.clusterInfo.IsLocalAddress(src)
+	dstLocal := ms.clusterInfo.IsLocalAddress(dst)
+	if srcLocal && dstLocal {
+		return "local"
+	}
+	if src.IsLinkLocalUnicast() || src.IsLinkLocalMulticast() || dst.IsLinkLocalUnicast() || dst.IsLinkLocalMulticast() {
+		return "link-local"
+	}
+	srcCluster := ms.clusterInfo.IsInClusterRange(src)
+	dstCluster := ms.clusterInfo.IsInClusterRange(dst)
+	if (srcLocal && dstCluster) || (srcCluster && dstLocal) {
+		return "cluster"
+	}
+	return "internet"
 }
