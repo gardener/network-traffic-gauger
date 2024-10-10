@@ -1,9 +1,9 @@
 network-traffic-gauger:
-  template: 'default'
   base_definition:
-    repo: ~
     traits:
       component_descriptor:
+        ocm_repository: europe-docker.pkg.dev/gardener-project/snapshots
+        component_name: 'github.com/gardener/network-traffic-gauger'
         component_labels:
         - name: 'cloud.gardener.cnudie/responsibles'
           value:
@@ -22,8 +22,7 @@ network-traffic-gauger:
             inputs:
               repos:
                 source: ~ # default
-            registry: 'gcr-readwrite'
-            image: 'eu.gcr.io/gardener-project/gardener/network-traffic-gauger'
+            image: europe-docker.pkg.dev/gardener-project/snapshots/gardener/network-traffic-gauger
             dockerfile: 'Dockerfile'
             resource_labels:
             - name: 'gardener.cloud/cve-categorisation'
@@ -36,10 +35,13 @@ network-traffic-gauger:
                 availability_requirement: 'low'
     steps:
       verify:
-        image: golang:1.20.4
+        image: golang:1.23.2
   jobs:
     head-update:
       traits:
+        component_descriptor:
+          ocm_repository_mappings:
+            - repository: europe-docker.pkg.dev/gardener-project/releases
         draft_release: ~
     pull-request:
       traits:
@@ -57,4 +59,8 @@ network-traffic-gauger:
               channel_name: 'C9CEBQPGE' #sap-tech-gardener
               slack_cfg_name: 'scp_workspace'
         component_descriptor:
-          component_name: 'github.com/gardener/network-traffic-gauger'
+          ocm_repository: europe-docker.pkg.dev/gardener-project/releases
+        publish:
+          dockerimages:
+            network-traffic-gauger:
+              image: europe-docker.pkg.dev/gardener-project/releases/gardener/network-traffic-gauger

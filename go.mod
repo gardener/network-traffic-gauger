@@ -1,6 +1,6 @@
 module github.com/gardener/network-traffic-gauger
 
-go 1.20
+go 1.23.2
 
 require (
 	github.com/florianl/go-conntrack v0.3.0
