@@ -9,6 +9,7 @@ import (
 	"net"
 
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -18,12 +19,12 @@ var _ = Describe("cluster information test", func() {
 	var (
 		localRanges  = []string{"10.0.0.0/24", "2001:db8::/64"}
 		clusterRange = []string{"10.0.0.0/16", "2001:db8::/32"}
-		clusterInfo  ClusterInfo
+		clusterInfo  Info
 	)
 
 	BeforeEach(func() {
 		var err error
-		clusterInfo, err = NewClusterInfo(localRanges, clusterRange, false, "", "")
+		clusterInfo, err = NewInfo(localRanges, clusterRange, false, "", "")
 		Expect(err).To(BeNil())
 	})
 

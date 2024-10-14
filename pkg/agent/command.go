@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	ct "github.com/florianl/go-conntrack"
 	"github.com/gardener/network-traffic-gauger/pkg/cluster"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
@@ -17,6 +16,8 @@ import (
 	"github.com/gardener/network-traffic-gauger/pkg/metrics"
 	"github.com/gardener/network-traffic-gauger/pkg/setup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
+	ct "github.com/florianl/go-conntrack"
 	"github.com/mdlayher/netlink"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -88,7 +89,7 @@ func CreateRunAgentCmd() *cobra.Command {
 	return cmd
 }
 
-func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
+func (rac *runAgentCommand) runAgent(_ *cobra.Command, _ []string) error {
 	log := logrus.WithField("cmd", "run-agent")
 	ctx := context.Background()
 
@@ -115,7 +116,7 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 	defer activeConnectionsStore.StopStorageWorker()
 
 	log.Infof("Initializing cluster information...")
-	clusterInfo, err := cluster.NewClusterInfo(rac.localRanges, rac.clusterRanges, rac.extractLocalRangesFromKubernetes, rac.kubeconfigPath, rac.nodeName)
+	clusterInfo, err := cluster.NewInfo(rac.localRanges, rac.clusterRanges, rac.extractLocalRangesFromKubernetes, rac.kubeconfigPath, rac.nodeName)
 	if err != nil {
 		return fmt.Errorf("failed to initialize cluster info with network ranges local='%v', cluster='%v': %w", rac.localRanges, rac.clusterRanges, err)
 	}
@@ -124,7 +125,7 @@ func (rac *runAgentCommand) runAgent(ccmd *cobra.Command, args []string) error {
 	}
 
 	log.Infof("Starting metrics server...")
-	metricsServer := metrics.NewMetricsServer(activeConnectionsStore, closedConnectionsStore, clusterInfo, rac.metricsPort, rac.metricsEnableErrorLog, rac.metricsEnableServiceMetrics, rac.metricsEnableByteMetrics, rac.metricsEnablePacketMetrics, rac.metricsEnableFlowCountMetrics, rac.metricsReportErrorsDuringCollection)
+	metricsServer := metrics.NewServer(activeConnectionsStore, closedConnectionsStore, clusterInfo, rac.metricsPort, rac.metricsEnableErrorLog, rac.metricsEnableServiceMetrics, rac.metricsEnableByteMetrics, rac.metricsEnablePacketMetrics, rac.metricsEnableFlowCountMetrics, rac.metricsReportErrorsDuringCollection)
 	go func() {
 		metricsServer.ServiceMetrics()
 	}()
@@ -204,7 +205,6 @@ func (rac *runAgentCommand) dumpConnectionTrackingTable(log *logrus.Entry, nfctD
 			rac.handleConnection(activeConnectionsStore, &c, log, "dump", false, &t)
 		}
 	}
-
 }
 
 func (rac *runAgentCommand) handleConnection(activeConnectionsStore active.Store, c *ct.Con, log *logrus.Entry, traceSource string, closed bool, time *time.Time) {

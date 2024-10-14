@@ -47,7 +47,7 @@ func GetStopTimeIfAvailable(timestamp *ct.Timestamp) *time.Time {
 	return nil
 }
 
-func getIpProtocol(number uint8) string {
+func getIPProtocol(number uint8) string {
 	switch number {
 	case tcpProtocolNumber:
 		return "TCP"
@@ -73,14 +73,14 @@ func GetTime(time *time.Time, c *ct.Con) *time.Time {
 }
 
 func GetSourcePortIfAvailable(proto *ct.ProtoTuple) uint16 {
-	if isTcpOrUdp(proto) {
+	if isTCPOrUDP(proto) {
 		return *proto.SrcPort
 	}
 	return 0
 }
 
 func GetDestinationPortIfAvailable(proto *ct.ProtoTuple) uint16 {
-	if isTcpOrUdp(proto) {
+	if isTCPOrUDP(proto) {
 		return *proto.DstPort
 	}
 	return 0
@@ -89,27 +89,27 @@ func GetDestinationPortIfAvailable(proto *ct.ProtoTuple) uint16 {
 func TraceConnection(enabled bool, log *logrus.Entry, c *ct.Con, source string) {
 	if enabled {
 		// Not all protocols have a notion of ports, handle tcp/udp specifically as the major cases
-		if !isTcpOrUdp(c.Origin.Proto) {
+		switch {
+		case !isTCPOrUDP(c.Origin.Proto):
 			log.Infof("Received connection via %s: %s->%s (%s->%s), %s, bytes sent/received %d/%d, packets sent/received %d/%d, id %d, status %d, time %s->%s", source,
-				c.Origin.Src, c.Origin.Dst, c.Reply.Dst, c.Reply.Src, getIpProtocol(*c.Origin.Proto.Number),
+				c.Origin.Src, c.Origin.Dst, c.Reply.Dst, c.Reply.Src, getIPProtocol(*c.Origin.Proto.Number),
 				GetCounterBytesIfAvailable(c.CounterOrigin), GetCounterBytesIfAvailable(c.CounterReply),
 				GetCounterPacketsIfAvailable(c.CounterOrigin), GetCounterPacketsIfAvailable(c.CounterReply),
 				*c.ID, c.Status, GetStartTimeIfAvailable(c.Timestamp), GetStopTimeIfAvailable(c.Timestamp))
-		} else if c.Origin.Dst.Equal(*c.Reply.Src) && GetDestinationPortIfAvailable(c.Origin.Proto) == GetSourcePortIfAvailable(c.Reply.Proto) &&
-			c.Origin.Src.Equal(*c.Reply.Dst) && GetSourcePortIfAvailable(c.Origin.Proto) == GetDestinationPortIfAvailable(c.Reply.Proto) {
+		case c.Origin.Dst.Equal(*c.Reply.Src) && GetDestinationPortIfAvailable(c.Origin.Proto) == GetSourcePortIfAvailable(c.Reply.Proto) &&
+			c.Origin.Src.Equal(*c.Reply.Dst) && GetSourcePortIfAvailable(c.Origin.Proto) == GetDestinationPortIfAvailable(c.Reply.Proto):
 			// No network address translation (NAT) => no need to print reply addresses as they are the same
 			log.Infof("Received connection via %s: %s:%d->%s:%d, %s, bytes sent/received %d/%d, packets sent/received %d/%d, id %d, status %d, time %s->%s", source,
 				c.Origin.Src, GetSourcePortIfAvailable(c.Origin.Proto), c.Origin.Dst, GetDestinationPortIfAvailable(c.Origin.Proto),
-				getIpProtocol(*c.Origin.Proto.Number),
+				getIPProtocol(*c.Origin.Proto.Number),
 				GetCounterBytesIfAvailable(c.CounterOrigin), GetCounterBytesIfAvailable(c.CounterReply),
 				GetCounterPacketsIfAvailable(c.CounterOrigin), GetCounterPacketsIfAvailable(c.CounterReply),
 				*c.ID, c.Status, GetStartTimeIfAvailable(c.Timestamp), GetStopTimeIfAvailable(c.Timestamp))
-
-		} else {
+		default:
 			log.Infof("Received connection via %s: %s:%d->%s:%d (%s:%d->%s:%d), %s, bytes sent/received %d/%d, packets sent/received %d/%d, id %d, status %d, time %s->%s", source,
 				c.Origin.Src, GetSourcePortIfAvailable(c.Origin.Proto), c.Origin.Dst, GetDestinationPortIfAvailable(c.Origin.Proto),
 				c.Reply.Dst, GetDestinationPortIfAvailable(c.Reply.Proto), c.Reply.Src, GetSourcePortIfAvailable(c.Reply.Proto),
-				getIpProtocol(*c.Origin.Proto.Number),
+				getIPProtocol(*c.Origin.Proto.Number),
 				GetCounterBytesIfAvailable(c.CounterOrigin), GetCounterBytesIfAvailable(c.CounterReply),
 				GetCounterPacketsIfAvailable(c.CounterOrigin), GetCounterPacketsIfAvailable(c.CounterReply),
 				*c.ID, c.Status, GetStartTimeIfAvailable(c.Timestamp), GetStopTimeIfAvailable(c.Timestamp))
@@ -124,6 +124,6 @@ func ConvertIP(ip *net.IP) (netip.Addr, bool) {
 	return netip.AddrFromSlice(*ip)
 }
 
-func isTcpOrUdp(proto *ct.ProtoTuple) bool {
+func isTCPOrUDP(proto *ct.ProtoTuple) bool {
 	return *proto.Number == tcpProtocolNumber || *proto.Number == udpProtocolNumber
 }

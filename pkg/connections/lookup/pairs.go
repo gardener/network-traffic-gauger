@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -104,15 +105,15 @@ func (acp *activeConnectionPairs) Exists(src net.IP, dst net.IP) bool {
 }
 
 func (acp *activeConnectionPairs) convert(src net.IP, dst net.IP) (pair, bool) {
-	srcIp, ok := utils.ConvertIP(&src)
+	srcIP, ok := utils.ConvertIP(&src)
 	if !ok {
 		acp.log.Errorf("Converting source IP address failed, ignoring active connection in lookup table: %s->%s", src, dst)
 		return pair{}, false
 	}
-	dstIp, ok := utils.ConvertIP(&dst)
+	dstIP, ok := utils.ConvertIP(&dst)
 	if !ok {
 		acp.log.Errorf("Converting destination IP address failed, ignoring active connection in lookup table: %s->%s", src, dst)
 		return pair{}, false
 	}
-	return pair{src: srcIp, dst: dstIp}, true
+	return pair{src: srcIP, dst: dstIP}, true
 }

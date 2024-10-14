@@ -12,24 +12,29 @@ IMAGE_TAG             := $(VERSION)
 EFFECTIVE_VERSION     := $(VERSION)-$(shell git rev-parse HEAD)
 GOARCH                := amd64
 
-.PHONY: revendor
-revendor:
-	@GO111MODULE=on go mod vendor
-	@GO111MODULE=on go mod tidy
+#########################################
+# Tools                                 #
+#########################################
 
+TOOLS_DIR := hack/tools
+include $(TOOLS_DIR)/tools.mk
+
+.PHONY: tidy
+tidy:
+	go mod tidy
 
 .PHONY: check
-check: $(GOIMPORTS)
+check: $(GOIMPORTS) $(GOLANGCI_LINT)
 	go vet ./...
+	GOIMPORTS=$(GOIMPORTS) GOLANGCI_LINT=$(GOLANGCI_LINT) hack/check.sh ./cmd/... ./pkg/...
 
 .PHONY: format
-format:
-	@$(REPO_ROOT)/hack/format.sh ./cmd ./pkg
+format: $(GOIMPORTS)
+	@GOIMPORTS=$(GOIMPORTS) $(REPO_ROOT)/hack/format.sh ./cmd ./pkg
 
 .PHONY: build
 build:
 	@CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH) GO111MODULE=on go build -o $(EXECUTABLE) \
-        -mod=vendor \
 	    -ldflags "-X 'main.Version=$(EFFECTIVE_VERSION)' -X 'main.ImageTag=$(IMAGE_TAG)'"\
 	    ./cmd/net-gauger
 
@@ -37,7 +42,6 @@ build:
 build-local:
 	@CGO_ENABLED=1 GO111MODULE=on go build -o $(EXECUTABLE) \
 	    -race \
-        -mod=vendor \
 	    -ldflags "-X 'main.Version=$(EFFECTIVE_VERSION)' -X 'main.ImageTag=$(IMAGE_TAG)'"\
 	    ./cmd/net-gauger
 
@@ -45,20 +49,15 @@ build-local:
 .PHONY: release
 release:
 	@CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH) GO111MODULE=on go build -o $(EXECUTABLE) \
-        -mod=vendor \
         -ldflags "-w -X 'main.Version=$(EFFECTIVE_VERSION)' -X 'main.ImageTag=$(IMAGE_TAG)'"\
 	    ./cmd/net-gauger
 
 .PHONY: test
 test:
-	GO111MODULE=on go test -mod=vendor ./pkg/...
+	go test ./pkg/...
 
 .PHONY: verify
 verify: check format test
-
-.PHONY: install-requirements
-install-requirements:
-	@go install -mod=vendor $(REPO_ROOT)/vendor/golang.org/x/tools/cmd/goimports
 
 .PHONY: prepare-default-image
 prepare-default-image:
