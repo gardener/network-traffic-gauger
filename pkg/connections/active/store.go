@@ -9,10 +9,11 @@ import (
 	"sync"
 	"time"
 
-	ct "github.com/florianl/go-conntrack"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
+	ct "github.com/florianl/go-conntrack"
 	"github.com/sirupsen/logrus"
 )
 
@@ -90,7 +91,8 @@ func (ms *store) HandleConnection(c *ct.Con, traceSource string, closed bool, ti
 	ms.openConnectionsLock.Lock()
 	defer ms.openConnectionsLock.Unlock()
 	cd, exists := ms.openConnections[*c.ID]
-	if !exists {
+	switch {
+	case !exists:
 		cd = newConnectionData(c, time)
 		if !closed {
 			ms.openConnections[*c.ID] = cd
@@ -100,7 +102,7 @@ func (ms *store) HandleConnection(c *ct.Con, traceSource string, closed bool, ti
 			ms.log.Infof("Found new connection via %s: %s:%d->%s:%d (%s:%d)", traceSource,
 				cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort)
 		}
-	} else if !cd.equalConnection(c) {
+	case !cd.equalConnection(c):
 		ms.log.Warnf("Missed close event of connection %s:%d->%s:%d (%s:%d), connection id reused for %s:%d->%s:%d (%s:%d)",
 			cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort,
 			c.Origin.Src, utils.GetSourcePortIfAvailable(c.Origin.Proto),
@@ -117,7 +119,7 @@ func (ms *store) HandleConnection(c *ct.Con, traceSource string, closed bool, ti
 			ms.log.Infof("Indirectly found new connection via %s: %s:%d->%s:%d (%s:%d)", traceSource,
 				cd.src, cd.srcPort, cd.dst, cd.dstPort, cd.svcDst, cd.svcDstPort)
 		}
-	} else {
+	default:
 		cd.updateCounters(c, time)
 		if ms.traceConnectionChange {
 			ms.log.Infof("Updated existing connection via %s: %s:%d->%s:%d (%s:%d)", traceSource,
@@ -138,7 +140,7 @@ func (ms *store) HandleConnection(c *ct.Con, traceSource string, closed bool, ti
 
 func (ms *store) IterateConnections(callback func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64) error) error {
 	return ms.iterateConnections(callback,
-		func(data *connectionData) bool { return true },
+		func(_ *connectionData) bool { return true },
 		func(data *connectionData) *net.IP { return &data.dst })
 }
 

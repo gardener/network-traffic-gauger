@@ -10,6 +10,7 @@ import (
 	"net/netip"
 
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,7 +18,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-type ClusterInfo interface {
+type Info interface {
 	Update(ctx context.Context) error
 	IsLocalAddress(ip netip.Addr) bool
 	IsInClusterRange(ip netip.Addr) bool
@@ -33,7 +34,7 @@ type clusterInfo struct {
 	clusterRanges         []netip.Prefix
 }
 
-func NewClusterInfo(localRanges []string, clusterRanges []string, useKubernetes bool, kubeconfigPath string, nodeName string) (ClusterInfo, error) {
+func NewInfo(localRanges []string, clusterRanges []string, useKubernetes bool, kubeconfigPath string, nodeName string) (Info, error) {
 	if useKubernetes && len(nodeName) == 0 {
 		return nil, fmt.Errorf("node name cannot be empty when using kubernetes to retrieve local ranges")
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -33,7 +34,7 @@ type internalStore = store
 var _ = Describe("closed connection store test", func() {
 	var (
 		ipV4Addresses      = []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("0.0.0.0"), net.ParseIP("255.255.255.255"), net.ParseIP("192.168.123.45"), net.ParseIP("10.11.12.13")}
-		shortIpV4Addresses = []net.IP{net.ParseIP("127.0.0.1").To4(), net.ParseIP("0.0.0.0").To4(), net.ParseIP("255.255.255.255").To4(), net.ParseIP("192.168.123.45").To4(), net.ParseIP("10.11.12.13").To4()}
+		shortIPV4Addresses = []net.IP{net.ParseIP("127.0.0.1").To4(), net.ParseIP("0.0.0.0").To4(), net.ParseIP("255.255.255.255").To4(), net.ParseIP("192.168.123.45").To4(), net.ParseIP("10.11.12.13").To4()}
 		ipV6Addresses      = []net.IP{net.ParseIP("::1"), net.ParseIP("::"), net.ParseIP("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), net.ParseIP("2001:db8:1234:5678:abcd:ef01:9876:5432"), net.ParseIP("fc00::7654")}
 
 		store Store
@@ -44,15 +45,15 @@ var _ = Describe("closed connection store test", func() {
 	})
 
 	DescribeTable("should store flow data",
-		func(flows []flow, expectError bool) {
+		func(flows []flow, _ bool) {
 			By("empty store")
 			entries := 0
-			Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+			Expect(store.IterateConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 				entries++
 				return nil
 			})).To(BeNil())
 			Expect(entries).To(BeZero())
-			Expect(store.IterateServiceConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+			Expect(store.IterateServiceConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 				entries++
 				return nil
 			})).To(BeNil())
@@ -112,7 +113,7 @@ var _ = Describe("closed connection store test", func() {
 					calculatedCount = &count
 					dstCountsMap[dstKey] = calculatedCount
 				}
-				*calculatedCount += 1
+				*calculatedCount++
 				if !f.dst.Equal(*f.svcDst) {
 					svcDstMap, exists := calculatedServiceConnections[srcKey]
 					if !exists {
@@ -145,7 +146,7 @@ var _ = Describe("closed connection store test", func() {
 						calculatedSvcCount = &count
 						svcDstCountsMap[svcDstKey] = calculatedSvcCount
 					}
-					*calculatedSvcCount += 1
+					*calculatedSvcCount++
 				}
 			}
 
@@ -156,7 +157,7 @@ var _ = Describe("closed connection store test", func() {
 
 		Entry("no flow", []flow{}, false),
 		Entry("single ipv4 flow", []flow{{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}}}, false),
-		Entry("single (short) ipv4 flow", []flow{{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}}}, false),
+		Entry("single (short) ipv4 flow", []flow{{&shortIPV4Addresses[0], &shortIPV4Addresses[1], &shortIPV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}}}, false),
 		Entry("single ipv6 flow", []flow{{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1234567890), uint64(987654321), uint64(1029384756), uint64(918273645), time.Time{}}}, false),
 		Entry("several separate ipv4 flows", []flow{
 			{&ipV4Addresses[0], &ipV4Addresses[1], &ipV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
@@ -166,11 +167,11 @@ var _ = Describe("closed connection store test", func() {
 			{&ipV4Addresses[4], &ipV4Addresses[0], &ipV4Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000), time.Time{}},
 		}, false),
 		Entry("several separate (short) ipv4 flows", []flow{
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40), time.Time{}},
-			{&shortIpV4Addresses[2], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400), time.Time{}},
-			{&shortIpV4Addresses[3], &shortIpV4Addresses[4], &shortIpV4Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000), time.Time{}},
-			{&shortIpV4Addresses[4], &shortIpV4Addresses[0], &shortIpV4Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000), time.Time{}},
+			{&shortIPV4Addresses[0], &shortIPV4Addresses[1], &shortIPV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&shortIPV4Addresses[1], &shortIPV4Addresses[2], &shortIPV4Addresses[3], uint64(10), uint64(20), uint64(30), uint64(40), time.Time{}},
+			{&shortIPV4Addresses[2], &shortIPV4Addresses[3], &shortIPV4Addresses[4], uint64(100), uint64(200), uint64(300), uint64(400), time.Time{}},
+			{&shortIPV4Addresses[3], &shortIPV4Addresses[4], &shortIPV4Addresses[0], uint64(1000), uint64(2000), uint64(3000), uint64(4000), time.Time{}},
+			{&shortIPV4Addresses[4], &shortIPV4Addresses[0], &shortIPV4Addresses[1], uint64(10000), uint64(20000), uint64(30000), uint64(40000), time.Time{}},
 		}, false),
 		Entry("several separate ipv6 flows", []flow{
 			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
@@ -192,16 +193,16 @@ var _ = Describe("closed connection store test", func() {
 			{&ipV4Addresses[1], &ipV4Addresses[2], &ipV4Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405), time.Time{}},
 		}, false),
 		Entry("several repeated (short) ipv4 flows", []flow{
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44), time.Time{}},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[1], &shortIpV4Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444), time.Time{}},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45), time.Time{}},
-			{&shortIpV4Addresses[0], &shortIpV4Addresses[3], &shortIpV4Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456), time.Time{}},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401), time.Time{}},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[3], &shortIpV4Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402), time.Time{}},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403), time.Time{}},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[3], &shortIpV4Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404), time.Time{}},
-			{&shortIpV4Addresses[1], &shortIpV4Addresses[2], &shortIpV4Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405), time.Time{}},
+			{&shortIPV4Addresses[0], &shortIPV4Addresses[1], &shortIPV4Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
+			{&shortIPV4Addresses[0], &shortIPV4Addresses[1], &shortIPV4Addresses[2], uint64(11), uint64(22), uint64(33), uint64(44), time.Time{}},
+			{&shortIPV4Addresses[0], &shortIPV4Addresses[1], &shortIPV4Addresses[2], uint64(111), uint64(222), uint64(333), uint64(444), time.Time{}},
+			{&shortIPV4Addresses[0], &shortIPV4Addresses[3], &shortIPV4Addresses[4], uint64(12), uint64(23), uint64(34), uint64(45), time.Time{}},
+			{&shortIPV4Addresses[0], &shortIPV4Addresses[3], &shortIPV4Addresses[4], uint64(123), uint64(234), uint64(345), uint64(456), time.Time{}},
+			{&shortIPV4Addresses[1], &shortIPV4Addresses[2], &shortIPV4Addresses[3], uint64(101), uint64(201), uint64(301), uint64(401), time.Time{}},
+			{&shortIPV4Addresses[1], &shortIPV4Addresses[3], &shortIPV4Addresses[3], uint64(102), uint64(202), uint64(302), uint64(402), time.Time{}},
+			{&shortIPV4Addresses[1], &shortIPV4Addresses[2], &shortIPV4Addresses[3], uint64(103), uint64(203), uint64(303), uint64(403), time.Time{}},
+			{&shortIPV4Addresses[1], &shortIPV4Addresses[3], &shortIPV4Addresses[3], uint64(104), uint64(204), uint64(304), uint64(404), time.Time{}},
+			{&shortIPV4Addresses[1], &shortIPV4Addresses[2], &shortIPV4Addresses[3], uint64(105), uint64(205), uint64(305), uint64(405), time.Time{}},
 		}, false),
 		Entry("several repeated ipv6 flows", []flow{
 			{&ipV6Addresses[0], &ipV6Addresses[1], &ipV6Addresses[2], uint64(1), uint64(2), uint64(3), uint64(4), time.Time{}},
@@ -218,9 +219,7 @@ var _ = Describe("closed connection store test", func() {
 	)
 
 	Context("should cleanup closed connections properly", func() {
-		var (
-			lookupTable lookup.ActiveConnectionPairs
-		)
+		var lookupTable lookup.ActiveConnectionPairs
 
 		BeforeEach(func() {
 			lookupTable = lookup.NewLookupTable()
@@ -234,7 +233,7 @@ var _ = Describe("closed connection store test", func() {
 
 				By("store flows")
 				for _, f := range flows {
-					store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets, f.lastUpdate)
+					Expect(store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets, f.lastUpdate)).To(Succeed())
 				}
 				for _, f := range lookupTableInserts {
 					lookupTable.Add(*f.src, *f.dst, *f.svcDst)
@@ -242,11 +241,11 @@ var _ = Describe("closed connection store test", func() {
 
 				By("count flows after insert")
 				entries := 0
-				Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+				Expect(store.IterateConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 					entries++
 					return nil
 				})).To(BeNil())
-				Expect(store.IterateServiceConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+				Expect(store.IterateServiceConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 					entries++
 					return nil
 				})).To(BeNil())
@@ -255,14 +254,14 @@ var _ = Describe("closed connection store test", func() {
 				if reinsert {
 					By("reinsert flows to reset report flag")
 					for _, f := range flows {
-						store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets, f.lastUpdate)
+						Expect(store.StoreFlow(f.src, f.dst, f.svcDst, f.sentBytes, f.receivedBytes, f.sentPackets, f.receivedPackets, f.lastUpdate)).To(Succeed())
 					}
 					if iterateAfterReinsert {
 						By("iterate after reinserting flows to simulate metrics scraping")
-						Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+						Expect(store.IterateConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 							return nil
 						})).To(BeNil())
-						Expect(store.IterateServiceConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+						Expect(store.IterateServiceConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 							return nil
 						})).To(BeNil())
 					}
@@ -273,11 +272,11 @@ var _ = Describe("closed connection store test", func() {
 
 				By("count flows after cleanup")
 				entries = 0
-				Expect(store.IterateConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+				Expect(store.IterateConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 					entries++
 					return nil
 				})).To(BeNil())
-				Expect(store.IterateServiceConnections(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
+				Expect(store.IterateServiceConnections(func(_, _ *net.IP, _, _, _, _, _ uint64) error {
 					entries++
 					return nil
 				})).To(BeNil())
@@ -360,42 +359,42 @@ var _ = Describe("closed connection store test", func() {
 
 func storeConnectionClosure(connections map[netip.Addr]map[netip.Addr]*flow, counts map[netip.Addr]map[netip.Addr]*uint64) func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
 	return func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
-		srcIp, ok := netip.AddrFromSlice(*src)
+		srcIP, ok := netip.AddrFromSlice(*src)
 		if !ok {
-			return fmt.Errorf("could not convert source ip addres: %s", src.String())
+			return fmt.Errorf("could not convert source ip address: %s", src.String())
 		}
-		dstIp, ok := netip.AddrFromSlice(*dst)
+		dstIP, ok := netip.AddrFromSlice(*dst)
 		if !ok {
-			return fmt.Errorf("could not convert destination ip addres: %s", dst.String())
+			return fmt.Errorf("could not convert destination ip address: %s", dst.String())
 		}
-		flows, ok := connections[srcIp]
+		flows, ok := connections[srcIP]
 		if !ok {
 			flows = map[netip.Addr]*flow{}
-			connections[srcIp] = flows
+			connections[srcIP] = flows
 		}
-		flowCounts, ok := counts[srcIp]
+		flowCounts, ok := counts[srcIP]
 		if !ok {
 			flowCounts = map[netip.Addr]*uint64{}
-			counts[srcIp] = flowCounts
+			counts[srcIP] = flowCounts
 		}
-		data, ok := flows[dstIp]
+		data, ok := flows[dstIP]
 		if !ok {
 			data = &flow{
 				src:    src,
 				dst:    dst,
 				svcDst: dst,
 			}
-			flows[dstIp] = data
+			flows[dstIP] = data
 		}
 		data.sentBytes = sentBytes
 		data.receivedBytes = receivedBytes
 		data.sentPackets = sentPackets
 		data.receivedPackets = receivedPackets
-		c, ok := flowCounts[dstIp]
+		c, ok := flowCounts[dstIP]
 		if !ok {
-			var value uint64 = 0
+			var value uint64
 			c = &value
-			flowCounts[dstIp] = c
+			flowCounts[dstIP] = c
 		}
 		*c = count
 		return nil

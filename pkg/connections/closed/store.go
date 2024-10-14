@@ -13,6 +13,7 @@ import (
 
 	"github.com/gardener/network-traffic-gauger/pkg/connections/lookup"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -71,10 +72,8 @@ func (fs *store) StartCleanupWorker() {
 	go func() {
 		fs.log.Infof("Starting cleanup agent for closed connections...")
 		for {
-			select {
-			case t := <-fs.cleanupTicker.C:
-				fs.performCleanup(t)
-			}
+			t := <-fs.cleanupTicker.C
+			fs.performCleanup(t)
 		}
 	}()
 }
@@ -103,7 +102,7 @@ func (fs *store) performCleanup(t time.Time) {
 			}
 		}
 	}
-	fs.log.Infof("Cleaned up of %d closed connections (%d total) in %s (locking time: %s).", cleanedConnections, connections, time.Now().Sub(t), now.Sub(t))
+	fs.log.Infof("Cleaned up of %d closed connections (%d total) in %s (locking time: %s).", cleanedConnections, connections, time.Since(t), now.Sub(t))
 }
 
 func (fs *store) StopCleanupWorker() {
@@ -133,7 +132,7 @@ func (fs *store) StoreFlow(src, dst, svcDst *net.IP, sentBytes, receivedBytes, s
 	return nil
 }
 
-func (fs *store) storeFlowForDestination(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64, t time.Time, destinationData map[netip.Addr]*connectionData) error {
+func (fs *store) storeFlowForDestination(_, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64, t time.Time, destinationData map[netip.Addr]*connectionData) error {
 	dstKey, ok := utils.ConvertIP(dst)
 	if !ok {
 		return fmt.Errorf("error while converting destination ip address '%s' during storing of flow: expected byte length 4 or 16, but got %d", dst, len(*dst))
@@ -143,7 +142,7 @@ func (fs *store) storeFlowForDestination(src, dst *net.IP, sentBytes, receivedBy
 	data.receivedBytes += receivedBytes
 	data.sentPackets += sentPackets
 	data.receivedPackets += receivedPackets
-	data.flowCount += 1
+	data.flowCount++
 	if t.IsZero() {
 		data.lastUpdate = time.Now()
 	} else {

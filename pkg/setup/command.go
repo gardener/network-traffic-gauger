@@ -15,7 +15,7 @@ import (
 const (
 	netfilterAccounting         = "/proc/sys/net/netfilter/nf_conntrack_acct"
 	netfilterTimestamps         = "/proc/sys/net/netfilter/nf_conntrack_timestamp"
-	netfilterDefaultPermissions = 0644
+	netfilterDefaultPermissions = 0o644
 )
 
 type setupCommand struct {
@@ -36,7 +36,7 @@ func CreateSetupCmd() *cobra.Command {
 	return cmd
 }
 
-func (sc *setupCommand) setup(ccmd *cobra.Command, args []string) error {
+func (sc *setupCommand) setup(_ *cobra.Command, _ []string) error {
 	log := logrus.WithField("cmd", "setup")
 	log.Infof("Checking and enabling netfilter accounting/timestamps (if required)...")
 

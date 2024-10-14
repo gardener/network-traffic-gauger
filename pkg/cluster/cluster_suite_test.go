@@ -13,5 +13,5 @@ import (
 
 func TestClusterInfo(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "ClusterInfo Suite")
+	RunSpecs(t, "Info Suite")
 }

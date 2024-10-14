@@ -14,19 +14,20 @@ import (
 	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/closed"
 	"github.com/gardener/network-traffic-gauger/pkg/utils"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
-type MetricsServer interface {
+type Server interface {
 	ServiceMetrics()
 }
 
 type metricsServer struct {
 	activeConnectionsStore            active.Store
 	closedConnectionsStore            closed.Store
-	clusterInfo                       cluster.ClusterInfo
+	clusterInfo                       cluster.Info
 	port                              int
 	enableErrorLog                    bool
 	enableServiceMetrics              bool
@@ -54,7 +55,7 @@ type flow struct {
 	count           uint64
 }
 
-func NewMetricsServer(activeConnectionsStore active.Store, closedConnectionsStore closed.Store, clusterInfo cluster.ClusterInfo, port int, enableErrorLog bool, enableServiceMetrics bool, enableByteMetrics bool, enablePacketMetrics bool, enableFlowCountMetrics bool, reportErrorsDuringCollection bool) MetricsServer {
+func NewServer(activeConnectionsStore active.Store, closedConnectionsStore closed.Store, clusterInfo cluster.Info, port int, enableErrorLog bool, enableServiceMetrics bool, enableByteMetrics bool, enablePacketMetrics bool, enableFlowCountMetrics bool, reportErrorsDuringCollection bool) Server {
 	return &metricsServer{
 		activeConnectionsStore:            activeConnectionsStore,
 		closedConnectionsStore:            closedConnectionsStore,
@@ -133,33 +134,34 @@ func (ms *metricsServer) Collect(metricsChannel chan<- prometheus.Metric) {
 func (ms *metricsServer) collect(metricsChannel chan<- prometheus.Metric,
 	activeConnectionsStoreIteration func(callback func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64) error) error,
 	closedConnectionsStoreIteration func(callback func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error) error,
-	sentBytesDescription, receivedBytesDescription, sentPacketsDescription, receivedPacketsDescription, flowCountDescription *prometheus.Desc) {
+	sentBytesDescription, receivedBytesDescription, sentPacketsDescription, receivedPacketsDescription, flowCountDescription *prometheus.Desc,
+) {
 	// Prepare open connections for fast lookup during closed connections store iteration
 	openConnections := map[netip.Addr]map[netip.Addr]*flow{}
 	if err := activeConnectionsStoreIteration(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets uint64) error {
-		srcIp, ok := utils.ConvertIP(src)
+		srcIP, ok := utils.ConvertIP(src)
 		if !ok {
 			return fmt.Errorf("error while converting source ip '%s' during metrics collection from open connections: expected byte length 4 or 16, but got %d", src.String(), len(*src))
 		}
-		dstMap, exists := openConnections[srcIp]
+		dstMap, exists := openConnections[srcIP]
 		if !exists {
 			dstMap = map[netip.Addr]*flow{}
-			openConnections[srcIp] = dstMap
+			openConnections[srcIP] = dstMap
 		}
-		dstIp, ok := utils.ConvertIP(dst)
+		dstIP, ok := utils.ConvertIP(dst)
 		if !ok {
 			return fmt.Errorf("error while converting destination ip '%s' during metrics collection from open connections: expected byte length 4 or 16, but got %d", dst.String(), len(*dst))
 		}
-		f, exists := dstMap[dstIp]
+		f, exists := dstMap[dstIP]
 		if !exists {
 			f = &flow{}
-			dstMap[dstIp] = f
+			dstMap[dstIP] = f
 		}
 		f.sentBytes += sentBytes
 		f.receivedBytes += receivedBytes
 		f.sentPackets += sentPackets
 		f.receivedPackets += receivedPackets
-		f.count += 1
+		f.count++
 		return nil
 	}); err != nil {
 		ms.reportError(metricsChannel, err)
@@ -168,17 +170,17 @@ func (ms *metricsServer) collect(metricsChannel chan<- prometheus.Metric,
 	// Create metrics from the closed connections store using the open connection data if available
 	if err := closedConnectionsStoreIteration(func(src, dst *net.IP, sentBytes, receivedBytes, sentPackets, receivedPackets, count uint64) error {
 		// Check for open connection to add the metrics
-		srcIp, ok := utils.ConvertIP(src)
+		srcIP, ok := utils.ConvertIP(src)
 		if !ok {
 			return fmt.Errorf("error while converting source ip '%s' during metrics collection from closed connections: expected byte length 4 or 16, but got %d", src.String(), len(*src))
 		}
-		dstIp, ok := utils.ConvertIP(dst)
+		dstIP, ok := utils.ConvertIP(dst)
 		if !ok {
 			return fmt.Errorf("error while converting destination ip '%s' during metrics collection from closed connections: expected byte length 4 or 16, but got %d", dst.String(), len(*dst))
 		}
-		dstMap, exists := openConnections[srcIp]
+		dstMap, exists := openConnections[srcIP]
 		if exists {
-			f, exists := dstMap[dstIp]
+			f, exists := dstMap[dstIP]
 			if exists {
 				sentBytes += f.sentBytes
 				receivedBytes += f.receivedBytes
@@ -189,7 +191,7 @@ func (ms *metricsServer) collect(metricsChannel chan<- prometheus.Metric,
 		}
 
 		// Check if connection is local, cluster or internet
-		connectionType := ms.determineConnectionType(srcIp, dstIp)
+		connectionType := ms.determineConnectionType(srcIP, dstIP)
 
 		// Emit the metrics depending on the configuration
 		if ms.enableByteMetrics {
