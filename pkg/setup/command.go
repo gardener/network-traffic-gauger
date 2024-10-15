@@ -80,7 +80,7 @@ func CheckNetfilterPrerequisites() (bool, error) {
 }
 
 func checkIfNetfilterOptionIsEnabled(procFsFile string) (bool, error) {
-	data, err := os.ReadFile(procFsFile)
+	data, err := os.ReadFile(procFsFile) // #nosec: G304 -- Only every called with two static paths. In reality files can be read from the Pod's file system only.
 	if err != nil {
 		return false, fmt.Errorf("failed to read '%s': %w", procFsFile, err)
 	}
