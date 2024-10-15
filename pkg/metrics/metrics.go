@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/gardener/network-traffic-gauger/pkg/cluster"
 	"github.com/gardener/network-traffic-gauger/pkg/connections/active"
@@ -94,7 +95,11 @@ func (ms *metricsServer) ServiceMetrics() {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(ms)
 	http.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{Registry: registry, ErrorLog: errorLog}))
-	log.Fatalf("error running metrics server: %v", http.ListenAndServe(fmt.Sprintf(":%d", ms.port), nil))
+	log.Fatalf("error running metrics server: %v", (&http.Server{
+		Addr:              fmt.Sprintf(":%d", ms.port),
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+	}).ListenAndServe())
 }
 
 func (ms *metricsServer) Describe(descriptionChannel chan<- *prometheus.Desc) {
