@@ -52,12 +52,20 @@ release:
         -ldflags "-w -X 'main.Version=$(EFFECTIVE_VERSION)' -X 'main.ImageTag=$(IMAGE_TAG)'"\
 	    ./cmd/net-gauger
 
+.PHONY: sast
+sast: $(GOSEC)
+	@./hack/sast.sh
+
+.PHONY: sast-report
+sast-report: $(GOSEC)
+	@./hack/sast.sh --gosec-report true
+
 .PHONY: test
 test:
 	go test ./pkg/...
 
 .PHONY: verify
-verify: check format test
+verify: check format test sast-report
 
 .PHONY: prepare-default-image
 prepare-default-image:
