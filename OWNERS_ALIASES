@@ -1,0 +1,13 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+aliases:
+  network-traffic-gauger-reviewers:
+  - axel7born
+  - DockToFuture
+  - domdom82
+  - ScheererJ
+  network-traffic-gauger-approvers:
+  - axel7born
+  - DockToFuture
+  - domdom82
+  - ScheererJ
