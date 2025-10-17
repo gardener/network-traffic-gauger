@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # SPDX-FileCopyrightText: 2022 SAP SE or an SAP affiliate company and Gardener contributors
 #
@@ -10,7 +10,10 @@ set -o pipefail
 
 cd "$(dirname $0)/.."
 
-git config --global user.email "gardener@sap.com"
-git config --global user.name "Gardener CI/CD"
+if [ -z "${GOPATH:-}" ]; then
+  # workaround. can be dropped after revendoring gardener/gardener
+  mkdir -p $HOME/go
+  export GOPATH=$HOME/go
+fi
 
 make verify
