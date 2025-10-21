@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+        default: snapshot
+        description: |
+          the mode to use. either `snapshot` or `release`. Will affect effective version, as well
+          as target-oci-registry.
+
+jobs:
+  prepare:
+    uses: gardener/cc-utils/.github/workflows/prepare.yaml@master
+    with:
+      mode: ${{ inputs.mode }}
+      version-commit-callback-action-path:
+    permissions:
+      contents: read
+
+  oci-images:
+    name: Build OCI-Images
+    needs:
+      - prepare
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    secrets: inherit
+    uses: gardener/cc-utils/.github/workflows/oci-ocm.yaml@master
+    strategy:
+      matrix:
+        args:
+          - name: network-traffic-gauger
+            target:
+            oci-repository: gardener/network-traffic-gauger
+            ocm-labels:
+              name: gardener.cloud/cve-categorisation
+              value:
+                network_exposure: private
+                authentication_enforced: false
+                user_interaction: end-user
+                confidentiality_requirement: high
+                integrity_requirement: high
+                availability_requirement: low
+    with:
+      name: ${{ matrix.args.name }}
+      version: ${{ needs.prepare.outputs.version }}
+      target: ${{ matrix.args.target }}
+      oci-registry: ${{ needs.prepare.outputs.oci-registry }}
+      oci-repository: ${{ matrix.args.oci-repository }}
+      oci-platforms: linux/amd64,linux/arm64
+      # workaround, as arm-runners are not (yet) available for private repositories.
+      # can be dropped, either if making the repository public, or if arm-runners will support
+      # private repositories.
+      oci-platforms-to-runners-map: |
+        linux/arm64: ubuntu-latest
+        linux/amd64: ubuntu-latest
+      ocm-labels: ${{ toJSON(matrix.args.ocm-labels) }}
+      extra-tags: latest
+
+  sast-lint:
+    uses: gardener/cc-utils/.github/workflows/sastlint-ocm.yaml@master
+    permissions:
+      contents: read
+    with:
+      linter: gosec
+      run: .ci/verify
+      go-version-file: 'go.mod'
