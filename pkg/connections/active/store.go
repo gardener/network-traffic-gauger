@@ -208,5 +208,5 @@ func (cd *connectionData) isEmpty() bool {
 		cd.svcDst == nil && cd.svcDstPort == emptyCD.svcDstPort &&
 		cd.sentBytes == emptyCD.sentBytes && cd.receivedBytes == emptyCD.receivedBytes &&
 		cd.sentPackets == emptyCD.sentPackets && cd.receivedPackets == emptyCD.receivedPackets &&
-		cd.lastChange == emptyCD.lastChange
+		cd.lastChange.Equal(emptyCD.lastChange)
 }

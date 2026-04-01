@@ -21,17 +21,24 @@ linters:
     - predeclared
     - revive
     - unused
-    - stylecheck
+    - staticcheck
     - unconvert
     - wastedassign
     - whitespace
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
   exclusions:
     rules:
       # dot imports in test files and utilities
       - path: ".*test.*.go$"
         text: "should not use dot imports"
         linters:
-          - stylecheck
+          - staticcheck
           - revive
     presets:
       - std-error-handling
