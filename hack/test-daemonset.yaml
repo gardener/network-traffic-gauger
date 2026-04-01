@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: network-traffic-gauger
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: network-traffic-gauger
+  template:
+    metadata:
+      labels:
+        app: network-traffic-gauger
+    spec:
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+      initContainers:
+        - name: setup
+          image: network-traffic-gauger:dev
+          imagePullPolicy: Never
+          command: ["/net-gauger", "setup", "--enable-accounting"]
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["NET_ADMIN"]
+      containers:
+        - name: agent
+          image: network-traffic-gauger:dev
+          imagePullPolicy: Never
+          command:
+            - /net-gauger
+            - run-agent
+            - --metrics-port=16160
+            - --dump-period=30s
+          ports:
+            - containerPort: 16160
+              name: metrics
+              protocol: TCP
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["NET_ADMIN"]
