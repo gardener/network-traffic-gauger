@@ -1,14 +1,21 @@
-# options for analysis running
+version: "2"
+
 run:
   timeout: 2m
-  skip-files:
-    - "zz_generated.*"
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/gardener/network-traffic-gauger
+
 linters:
   enable:
     - gocritic
     - godot
-    - gofumpt
-    - goimports
     - misspell
     - nolintlint
     - predeclared
@@ -18,15 +25,13 @@ linters:
     - unconvert
     - wastedassign
     - whitespace
-  # - wsl
-linters-settings:
-  goimports:
-    local-prefixes: github.com/gardener/network-traffic-gauger
-issues:
-  exclude-rules:
-    # dot imports in test files and utilities
-    - path: ".*test.*.go$"
-      text: "should not use dot imports"
-      linters:
-        - stylecheck
-        - revive
+  exclusions:
+    rules:
+      # dot imports in test files and utilities
+      - path: ".*test.*.go$"
+        text: "should not use dot imports"
+        linters:
+          - stylecheck
+          - revive
+    presets:
+      - std-error-handling
