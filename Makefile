@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-REGISTRY              := eu.gcr.io/gardener-project
+REGISTRY              := europe-docker.pkg.dev/gardener-project/snapshots
 EXECUTABLE            := net-gauger
 PROJECT               := github.com/gardener/network-traffic-gauger
 IMAGE_REPOSITORY      := $(REGISTRY)/gardener/network-traffic-gauger
