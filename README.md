@@ -2,6 +2,9 @@
 
 [![reuse compliant](https://reuse.software/badge/reuse-compliant.svg)](https://reuse.software/)
 
+> [!WARNING]
+> This component is a work in progress.
+
 The Network Traffic Gauger determines the network traffic and aggregates the amount of sent/received
 data to the corresponding source/destination IP pair. It allows attribution of network traffic to
 pods in a kubernetes cluster. The result can be used to determine high bandwidth communication pairs,
